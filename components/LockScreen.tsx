@@ -117,7 +117,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
                 value={password}
                 onChange={handlePasswordChange}
                 placeholder="Senha"
-                className={`w-full text-center text-base p-3 rounded-lg bg-card dark:bg-dark-card border focus:ring-2 focus:outline-none transition-all ${isError ? 'border-destructive ring-destructive' : 'border-border dark:border-dark-border focus:ring-primary'}`}
+                className={`w-full text-center text-base p-3 rounded-lg bg-card dark:bg-dark-card border text-foreground dark:text-dark-foreground placeholder-muted-foreground dark:placeholder-dark-muted-foreground focus:ring-2 focus:outline-none transition-all ${isError ? 'border-destructive ring-destructive' : 'border-border dark:border-dark-border focus:ring-primary'}`}
             />
         </motion.div>
         

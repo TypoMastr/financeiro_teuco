@@ -52,6 +52,23 @@ const uploadAttachment = async (attachmentUrl: string, attachmentFilename: strin
     return data.publicUrl;
 };
 
+
+const cleanTransactionDataForSupabase = (transactionData: any) => {
+    const cleanedData = { ...transactionData };
+
+    // Convert empty strings for optional foreign keys to undefined, so they are omitted from the request.
+    // Supabase client handles undefined values by not including them in the payload.
+    // This prevents errors with foreign key constraints on nullable columns.
+    if (cleanedData.payeeId === '') cleanedData.payeeId = undefined;
+    if (cleanedData.projectId === '') cleanedData.projectId = undefined;
+    if (cleanedData.payableBillId === '') cleanedData.payableBillId = undefined;
+    
+    // Also handle empty optional arrays
+    if (cleanedData.tagIds && cleanedData.tagIds.length === 0) cleanedData.tagIds = undefined;
+
+    return cleanedData;
+};
+
 // --- BUSINESS LOGIC ---
 const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => {
     const memberPayments = allPayments.filter(p => p.memberId === member.id);
@@ -334,10 +351,11 @@ export const transactionsApi = {
         return convertObjectKeys(data, toCamelCase);
     },
     add: async(transactionData: Omit<Transaction, 'id'>): Promise<Transaction> => {
-         const finalTransactionData = { ...transactionData };
+         const cleanedData = cleanTransactionDataForSupabase(transactionData);
+         const finalTransactionData = { ...cleanedData };
+
          if (finalTransactionData.attachmentUrl && finalTransactionData.attachmentUrl.startsWith('blob:') && finalTransactionData.attachmentFilename) {
-             const publicUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
-             finalTransactionData.attachmentUrl = publicUrl;
+             finalTransactionData.attachmentUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
          }
          const { data, error } = await supabase.from('transactions').insert(convertObjectKeys(finalTransactionData, toSnakeCase)).select().single();
          if (error) throw error;
@@ -348,10 +366,11 @@ export const transactionsApi = {
         const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
         if(findError) throw findError;
         
-        const finalTransactionData = { ...transactionData };
+        const cleanedData = cleanTransactionDataForSupabase(transactionData);
+        const finalTransactionData = { ...cleanedData };
+
         if (finalTransactionData.attachmentUrl && finalTransactionData.attachmentUrl.startsWith('blob:') && finalTransactionData.attachmentFilename) {
-            const publicUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
-            finalTransactionData.attachmentUrl = publicUrl;
+            finalTransactionData.attachmentUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
         }
 
         const { data, error } = await supabase.from('transactions').update(convertObjectKeys(finalTransactionData, toSnakeCase)).eq('id', transactionId).select().single();
