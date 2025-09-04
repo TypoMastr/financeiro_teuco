@@ -10,7 +10,8 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          '@': path.resolve(__dirname, '.'),
+          // FIX: `__dirname` is not available in ES modules. Replaced with `.` to resolve to the current working directory.
+          '@': path.resolve('.'),
         }
       }
     };

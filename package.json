@@ -1,5 +1,5 @@
 {
-  "name": "financeiro-teuco-(react)",
+  "name": "financeiro",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-
+    "react": "18.2.0",
+    "framer-motion": "11.3.11",
+    "recharts": "2.12.7",
+    "react-dom": "18.2.0",
+    "@google/genai": "latest",
+    "@supabase/supabase-js": "2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

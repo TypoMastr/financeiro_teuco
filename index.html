@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Financeiro TEUCO (React)</title>
+  
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#f2f6f6">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tenta aplicar o tema escuro/claro com base no localStorage, antes do carregamento da página
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+             sans: ['Geist', 'sans-serif'],
+             display: ['Geist', 'sans-serif'],
+          },
+          colors: {
+            background: '#F2F6F6',
+            foreground: '#1A2E2E',
+            card: '#FFFFFF',
+            'card-foreground': '#1A2E2E',
+            popover: '#FFFFFF',
+            'popover-foreground': '#1A2E2E',
+            primary: '#00A950', // New Green
+            'primary-foreground': '#FFFFFF',
+            secondary: '#E6F6EC', // Light Green
+            'secondary-foreground': '#006D34', // Dark Green
+            muted: '#E6F2F2',
+            'muted-foreground': '#5C7A7A',
+            accent: '#F2BDBE',
+            'accent-foreground': '#8C2B2F',
+            destructive: '#D9534F',
+            'destructive-foreground': '#FFFFFF',
+            'success-strong': 'rgba(60, 179, 113, 0.2)',
+            'danger-strong': 'rgba(217, 83, 79, 0.15)',
+            'success': '#3CB371',
+            'warning': '#F0AD4E',
+            'danger': '#D9534F',
+            border: '#D9E2E2',
+            input: '#D9E2E2',
+            ring: '#00A950', // New Green
+            
+            // Dark Mode Colors - Updated to a neutral gray palette
+            'dark-background': '#18181b',      // zinc-900
+            'dark-foreground': '#e4e4e7',      // zinc-200
+            'dark-card': '#27272a',            // zinc-800
+            'dark-card-foreground': '#e4e4e7',  // zinc-200
+            'dark-popover': '#27272a',          // zinc-800
+            'dark-popover-foreground': '#e4e4e7', // zinc-200
+            'dark-primary': '#33B873',         // Keep Green
+            'dark-primary-foreground': '#FFFFFF', // Keep White
+            'dark-secondary': '#1A3D2A',        // Keep Dark Green BG
+            'dark-secondary-foreground': '#99D6B5', // Keep Light Green Text
+            'dark-muted': '#3f3f46',            // zinc-700
+            'dark-muted-foreground': '#a1a1aa',  // zinc-400
+            'dark-accent': '#8C2B2F',           // Keep Accent
+            'dark-accent-foreground': '#F2BDBE',// Keep Accent
+            'dark-destructive': '#E57373',      // Keep Destructive Red
+            'dark-destructive-foreground': '#18181b', // Updated to new background
+            'dark-border': '#3f3f46',           // zinc-700
+            'dark-input': '#3f3f46',            // zinc-700
+            'dark-ring': '#33B873',             // Keep Green Ring
+            'dark-success-strong': 'rgba(144, 238, 144, 0.15)',
+            'dark-danger-strong': 'rgba(229, 115, 115, 0.15)',
+          },
+          boxShadow: {
+             'btn': '0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03)',
+             'dark-btn': '0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px 0 rgba(0, 0, 0, 0.1)',
+             'form-card': '0 4px 10px -2px rgba(26, 46, 46, 0.05)',
+             'dark-form-card': '0 4px 15px -2px rgba(0, 0, 0, 0.15)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden; /* Prevent horizontal scroll */
+    }
+    body { font-family: 'Geist', sans-serif; }
+    #root {
+      height: 100%;
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #99BABA; border-radius: 3px; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #52525b; } /* zinc-600 */
+    @media print { .no-print { display: none !important; } .printable-area { box-shadow: none !important; border: none !important; } }
+  </style>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+      "react/": "https://aistudiocdn.com/react@^19.1.1/",
+      "react": "https://aistudiocdn.com/react@^19.1.1",
+      "vite": "https://aistudiocdn.com/vite@^7.1.4",
+      "framer-motion": "https://aistudiocdn.com/framer-motion@^12.23.12",
+      "path": "https://aistudiocdn.com/path@^0.12.7",
+      "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.57.0"
+    }
+  }
+  </script>
+</head>
+<body class="bg-background dark:bg-dark-background">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

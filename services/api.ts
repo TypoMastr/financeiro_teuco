@@ -1,0 +1,590 @@
+import { createClient } from '@supabase/supabase-js';
+import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType } from '../types';
+
+const SUPABASE_URL = "https://qoqubqskbzwcsvcwrxdm.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcXVicXNrYnp3Y3N2Y3dyeGRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4NjAzMDUsImV4cCI6MjA3MjQzNjMwNX0.00KWOxdDd34DptwigNsMz3VAz5A1lTL13fBHcApPWSA";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// --- UTILS ---
+const toCamelCase = (s: string) => s.replace(/(_\w)/g, k => k[1].toUpperCase());
+const toSnakeCase = (s: string) => s.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+
+const convertObjectKeys = (obj: any, converter: (s: string) => string): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(v => convertObjectKeys(v, converter));
+    } else if (obj !== null && typeof obj === 'object' && obj.constructor === Object) {
+        return Object.keys(obj).reduce((result, key) => {
+            const newKey = converter(key);
+            result[newKey] = convertObjectKeys(obj[key], converter);
+            return result;
+        }, {} as any);
+    }
+    return obj;
+};
+
+// --- LOGGING ---
+const addLogEntry = async (description: string, actionType: ActionType, entityType: EntityType, undoData: any) => {
+    const { error } = await supabase.from('logs').insert({ description, action_type: actionType, entity_type: entityType, undo_data: undoData });
+    if (error) console.error('Error adding log entry:', error);
+};
+
+// --- ATTACHMENT UPLOAD ---
+const uploadAttachment = async (attachmentUrl: string, attachmentFilename: string): Promise<string> => {
+    // A blob URL can only be resolved in the context of the document that created it.
+    // So we must fetch it.
+    const response = await fetch(attachmentUrl);
+    const blob = await response.blob();
+    
+    // Create a new File object to ensure we have a filename and type.
+    const file = new File([blob], attachmentFilename, { type: blob.type });
+
+    // Use a unique path for each file to avoid collisions.
+    const filePath = `public/${Date.now()}-${attachmentFilename.replace(/\s/g, '_')}`;
+    
+    const { error: uploadError } = await supabase.storage.from('attachments').upload(filePath, file);
+    if (uploadError) {
+        console.error("Supabase storage upload error:", uploadError);
+        throw uploadError;
+    }
+
+    const { data } = supabase.storage.from('attachments').getPublicUrl(filePath);
+    return data.publicUrl;
+};
+
+// --- BUSINESS LOGIC ---
+const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => {
+    const memberPayments = allPayments.filter(p => p.memberId === member.id);
+    const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
+    const overdueMonths: OverdueMonth[] = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let currentDate = new Date(member.joinDate);
+    currentDate.setDate(1);
+
+    while (currentDate < today) {
+        const monthStr = currentDate.toISOString().slice(0, 7);
+        if (!paidMonths.has(monthStr)) {
+            overdueMonths.push({ month: monthStr, amount: member.monthlyFee });
+        }
+        currentDate.setMonth(currentDate.getMonth() + 1);
+    }
+
+    const lastPaidMonth = memberPayments.length > 0 ? memberPayments.map(p => p.referenceMonth).sort().pop()! : '0';
+    const currentMonthStr = today.toISOString().slice(0, 7);
+
+    let paymentStatus: PaymentStatus;
+    if (overdueMonths.length > 0) paymentStatus = PaymentStatus.Atrasado;
+    else if (lastPaidMonth > currentMonthStr) paymentStatus = PaymentStatus.Adiantado;
+    else paymentStatus = PaymentStatus.EmDia;
+    
+    return {
+        ...member,
+        paymentStatus,
+        overdueMonthsCount: overdueMonths.length,
+        overdueMonths,
+        totalDue: overdueMonths.reduce((sum, item) => sum + item.amount, 0),
+    };
+};
+
+const updateBillStatusBasedOnDate = (bill: PayableBill): PayableBill => {
+    if (bill.status === 'paid') return bill;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(bill.dueDate + 'T12:00:00Z');
+    return { ...bill, status: dueDate < today ? 'overdue' : 'pending' };
+};
+
+// --- API: GENERIC CRUD ---
+const createCrudFunctions = <T extends { id: string, name: string }>(tableName: string, entityType: EntityType, entityLabel: string, nameAccessor: (item: T) => string) => ({
+    getAll: async (): Promise<T[]> => {
+        const { data, error } = await supabase.from(tableName).select('*').order('name');
+        if (error) throw error;
+        return convertObjectKeys(data, toCamelCase);
+    },
+    add: async (itemData: Omit<T, 'id'>): Promise<T> => {
+        const payload: any = convertObjectKeys(itemData, toSnakeCase);
+        const { data, error } = await supabase.from(tableName).insert(payload).select().single();
+        if (error) throw error;
+        const newItem = convertObjectKeys(data, toCamelCase);
+        await addLogEntry(`Adicionado ${entityLabel}: ${nameAccessor(newItem)}`, 'create', entityType, { id: newItem.id });
+        return newItem;
+    },
+    update: async (itemId: string, itemData: Partial<Omit<T, 'id'>>): Promise<T> => {
+        const { data: oldData, error: findError } = await supabase.from(tableName).select('*').eq('id', itemId).single();
+        if (findError) throw findError;
+        const payload: any = convertObjectKeys(itemData, toSnakeCase);
+        const { data, error } = await supabase.from(tableName).update(payload).eq('id', itemId).select().single();
+        if (error) throw error;
+        await addLogEntry(`Atualizado ${entityLabel}: ${nameAccessor(convertObjectKeys(data, toCamelCase))}`, 'update', entityType, oldData);
+        return convertObjectKeys(data, toCamelCase);
+    },
+    remove: async (itemId: string): Promise<void> => {
+        const { data: oldData, error: findError } = await supabase.from(tableName).select('*').eq('id', itemId).single();
+        if (findError) throw findError;
+        const { error } = await supabase.from(tableName).delete().eq('id', itemId);
+        if (error) throw error;
+        await addLogEntry(`Removido ${entityLabel}: ${nameAccessor(convertObjectKeys(oldData, toCamelCase))}`, 'delete', entityType, oldData);
+    },
+});
+
+export const categoriesApi = createCrudFunctions<Category>('categories', 'category', 'categoria', item => item.name);
+export const tagsApi = createCrudFunctions<Tag>('tags', 'tag', 'tag', item => item.name);
+export const payeesApi = createCrudFunctions<Payee>('payees', 'payee', 'beneficiário', item => item.name);
+export const projectsApi = createCrudFunctions<Project>('projects', 'project', 'projeto', item => item.name);
+
+export const accountsApi = {
+    getAll: async (): Promise<Account[]> => {
+        const { data, error } = await supabase.from('accounts').select('*').order('name');
+        if (error) throw error;
+        return convertObjectKeys(data, toCamelCase);
+    },
+    add: async(itemData: Omit<Account, 'id' | 'currentBalance'>): Promise<Account> => {
+        const { data, error } = await supabase.from('accounts').insert({ name: itemData.name, initial_balance: itemData.initialBalance }).select().single();
+        if (error) throw error;
+        const newItem = convertObjectKeys(data, toCamelCase);
+        await addLogEntry(`Adicionada conta: ${newItem.name}`, 'create', 'account', { id: newItem.id });
+        return newItem;
+    },
+    update: async(itemId: string, itemData: Partial<Omit<Account, 'id' | 'currentBalance'>>): Promise<Account> => {
+        const { data: oldData, error: findError } = await supabase.from('accounts').select('*').eq('id', itemId).single();
+        if (findError) throw findError;
+        const { data, error } = await supabase.from('accounts').update({ name: itemData.name, initial_balance: itemData.initialBalance }).eq('id', itemId).select().single();
+        if (error) throw error;
+        await addLogEntry(`Atualizada conta: ${data.name}`, 'update', 'account', oldData);
+        return convertObjectKeys(data, toCamelCase);
+    },
+    remove: async(itemId: string): Promise<void> => {
+        const { data: oldData, error: findError } = await supabase.from('accounts').select('*').eq('id', itemId).single();
+        if (findError) throw findError;
+        const { error } = await supabase.from('accounts').delete().eq('id', itemId);
+        if (error) throw error;
+        await addLogEntry(`Removida conta: ${oldData.name}`, 'delete', 'account', oldData);
+    }
+};
+
+// --- API: MEMBERS & PAYMENTS ---
+export const getMembers = async (): Promise<Member[]> => {
+    const { data: membersData, error: membersError } = await supabase.from('members').select('*');
+    if (membersError) throw membersError;
+    const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
+    if (paymentsError) throw paymentsError;
+
+    const rawMembers = convertObjectKeys(membersData, toCamelCase);
+    const rawPayments = convertObjectKeys(paymentsData, toCamelCase);
+
+    return rawMembers.map((m: any) => calculateMemberDetails(m, rawPayments));
+};
+
+export const getMemberById = async (id: string): Promise<Member | undefined> => {
+    const { data, error } = await supabase.from('members').select('*').eq('id', id).single();
+    if (error) { if(error.code === 'PGRST116') return undefined; throw error; }
+    
+    const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
+    if (paymentsError) throw paymentsError;
+
+    const rawMember = convertObjectKeys(data, toCamelCase);
+    const rawPayments = convertObjectKeys(paymentsData, toCamelCase);
+    
+    return calculateMemberDetails(rawMember, rawPayments);
+};
+
+export const addMember = async (memberData: Omit<Member, 'id' | 'paymentStatus' | 'overdueMonthsCount' | 'overdueMonths' | 'totalDue'>): Promise<Member> => {
+    const { data, error } = await supabase.from('members').insert(convertObjectKeys(memberData, toSnakeCase)).select().single();
+    if (error) throw error;
+    const newMember = convertObjectKeys(data, toCamelCase);
+    await addLogEntry(`Adicionado novo membro: ${newMember.name}`, 'create', 'member', { id: newMember.id });
+    return calculateMemberDetails(newMember, []);
+};
+
+export const updateMember = async (memberId: string, memberData: Partial<Omit<Member, 'id'>>): Promise<Member> => {
+    const { data: oldData, error: findError } = await supabase.from('members').select('*').eq('id', memberId).single();
+    if (findError) throw findError;
+    const { data, error } = await supabase.from('members').update(convertObjectKeys(memberData, toSnakeCase)).eq('id', memberId).select().single();
+    if (error) throw error;
+    
+    await addLogEntry(`Atualizado membro: ${data.name}`, 'update', 'member', oldData);
+    
+    const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
+    if (paymentsError) throw paymentsError;
+    return calculateMemberDetails(convertObjectKeys(data, toCamelCase), convertObjectKeys(paymentsData, toCamelCase));
+};
+
+export const getPaymentsByMember = async (memberId: string): Promise<Payment[]> => {
+    const { data, error } = await supabase.from('payments').select('*').eq('member_id', memberId).order('payment_date', { ascending: false });
+    if (error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
+export const getPaymentByTransactionId = async (transactionId: string): Promise<Payment | undefined> => {
+    const { data, error } = await supabase.from('payments').select('*').eq('transaction_id', transactionId).maybeSingle();
+    if (error) throw error;
+    return data ? convertObjectKeys(data, toCamelCase) : undefined;
+};
+
+export const deletePayment = async (paymentId: string): Promise<void> => {
+    const { data: paymentToDelete, error: findError } = await supabase.from('payments').select('*').eq('id', paymentId).single();
+    if (findError) throw findError;
+
+    await addLogEntry(`Excluído pagamento ref. ${paymentToDelete.reference_month}`, 'delete', 'payment', paymentToDelete);
+
+    if (paymentToDelete.transaction_id) {
+        const { data: trxToDelete, error: trxFindError } = await supabase.from('transactions').select('*').eq('id', paymentToDelete.transaction_id).single();
+        if (!trxFindError && trxToDelete) {
+             await addLogEntry(`Excluída transação de pagamento: ${trxToDelete.description}`, 'delete', 'transaction', trxToDelete);
+             const { error: trxDeleteError } = await supabase.from('transactions').delete().eq('id', paymentToDelete.transaction_id);
+             if(trxDeleteError) throw trxDeleteError;
+        }
+    }
+    
+    const { error } = await supabase.from('payments').delete().eq('id', paymentId);
+    if (error) throw error;
+};
+
+export const addIncomeTransactionAndPayment = async (
+    transactionData: Pick<Transaction, 'description' | 'amount' | 'date' | 'accountId' | 'comments'>,
+    paymentData: Pick<Payment, 'memberId' | 'referenceMonth' | 'attachmentUrl' | 'attachmentFilename'>
+): Promise<void> => {
+    let finalAttachmentUrl = paymentData.attachmentUrl;
+    if (paymentData.attachmentUrl && paymentData.attachmentUrl.startsWith('blob:') && paymentData.attachmentFilename) {
+        finalAttachmentUrl = await uploadAttachment(paymentData.attachmentUrl, paymentData.attachmentFilename);
+    }
+
+    // 1. Create Transaction
+    const { data: trxData, error: trxError } = await supabase.from('transactions').insert({
+        description: transactionData.description,
+        amount: transactionData.amount,
+        date: transactionData.date,
+        type: 'income',
+        account_id: transactionData.accountId,
+        category_id: 'a1b2c3d4-e5f6-7890-1234-567890abcdef', // Default "Mensalidades" Category ID
+        comments: transactionData.comments,
+        attachment_url: finalAttachmentUrl,
+        attachment_filename: paymentData.attachmentFilename
+    }).select().single();
+    if (trxError) throw trxError;
+    await addLogEntry(`Criada transação: ${trxData.description}`, 'create', 'transaction', { id: trxData.id });
+
+    // 2. Create Payment linked to transaction
+    const { data: payData, error: payError } = await supabase.from('payments').insert({
+        member_id: paymentData.memberId,
+        amount: transactionData.amount,
+        payment_date: transactionData.date,
+        reference_month: paymentData.referenceMonth,
+        comments: transactionData.comments,
+        transaction_id: trxData.id,
+        attachment_url: finalAttachmentUrl,
+        attachment_filename: paymentData.attachmentFilename
+    }).select().single();
+    if (payError) throw payError;
+    await addLogEntry(`Criado pagamento para ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
+};
+
+export const updateTransactionAndPaymentLink = async (
+    transactionId: string,
+    transactionData: Partial<Transaction>,
+    paymentLink: { memberId: string, referenceMonth: string }
+) => {
+    // 1. Update Transaction
+    await transactionsApi.update(transactionId, transactionData);
+
+    // 2. Find and Update Payment
+    const { data: oldPay, error: findPayErr } = await supabase.from('payments').select('*').eq('transaction_id', transactionId).single();
+    if(findPayErr) throw findPayErr;
+    await addLogEntry(`Atualizado pagamento ref. ${oldPay.reference_month}`, 'update', 'payment', oldPay);
+    
+    const { error: updatePayErr } = await supabase.from('payments').update({
+        member_id: paymentLink.memberId,
+        reference_month: paymentLink.referenceMonth,
+        amount: transactionData.amount,
+        payment_date: transactionData.date,
+        comments: transactionData.comments,
+    }).eq('id', oldPay.id);
+    if(updatePayErr) throw updatePayErr;
+};
+
+
+// --- API: FINANCIAL & TRANSACTIONS ---
+export const getAccountsWithBalance = async (): Promise<Account[]> => {
+    const { data: accounts, error: accError } = await supabase.from('accounts').select('*');
+    if (accError) throw accError;
+
+    const { data: transactions, error: trxError } = await supabase.from('transactions').select('account_id, type, amount');
+    if (trxError) throw trxError;
+
+    const balances = new Map<string, number>();
+    accounts.forEach(acc => balances.set(acc.id, acc.initial_balance));
+
+    transactions.forEach(trx => {
+        const currentBalance = balances.get(trx.account_id) || 0;
+        const newBalance = currentBalance + (trx.type === 'income' ? trx.amount : -trx.amount);
+        balances.set(trx.account_id, newBalance);
+    });
+
+    return convertObjectKeys(accounts, toCamelCase).map((acc: Account) => ({
+        ...acc,
+        currentBalance: balances.get(acc.id) || acc.initialBalance,
+    }));
+};
+
+export const transactionsApi = {
+    getAll: async (): Promise<Transaction[]> => {
+        const { data, error } = await supabase.from('transactions').select('*');
+        if (error) throw error;
+        return convertObjectKeys(data, toCamelCase);
+    },
+    add: async(transactionData: Omit<Transaction, 'id'>): Promise<Transaction> => {
+         const finalTransactionData = { ...transactionData };
+         if (finalTransactionData.attachmentUrl && finalTransactionData.attachmentUrl.startsWith('blob:') && finalTransactionData.attachmentFilename) {
+             const publicUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
+             finalTransactionData.attachmentUrl = publicUrl;
+         }
+         const { data, error } = await supabase.from('transactions').insert(convertObjectKeys(finalTransactionData, toSnakeCase)).select().single();
+         if (error) throw error;
+         await addLogEntry(`Adicionada transação: ${data.description}`, 'create', 'transaction', { id: data.id });
+         return convertObjectKeys(data, toCamelCase);
+    },
+    update: async(transactionId: string, transactionData: Partial<Omit<Transaction, 'id'>>): Promise<Transaction> => {
+        const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+        if(findError) throw findError;
+        
+        const finalTransactionData = { ...transactionData };
+        if (finalTransactionData.attachmentUrl && finalTransactionData.attachmentUrl.startsWith('blob:') && finalTransactionData.attachmentFilename) {
+            const publicUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
+            finalTransactionData.attachmentUrl = publicUrl;
+        }
+
+        const { data, error } = await supabase.from('transactions').update(convertObjectKeys(finalTransactionData, toSnakeCase)).eq('id', transactionId).select().single();
+        if(error) throw error;
+        await addLogEntry(`Atualizada transação: ${data.description}`, 'update', 'transaction', oldData);
+        return convertObjectKeys(data, toCamelCase);
+    },
+    remove: async(transactionId: string): Promise<void> => {
+        const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+        if (findError) throw findError;
+        const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
+        if (error) throw error;
+        await addLogEntry(`Removida transação: ${oldData.description}`, 'delete', 'transaction', oldData);
+    }
+};
+
+// --- API: ACCOUNTS PAYABLE ---
+export const payableBillsApi = {
+    getAll: async (): Promise<PayableBill[]> => {
+        const { data, error } = await supabase.from('payable_bills').select('*').order('due_date');
+        if (error) throw error;
+        return convertObjectKeys(data, toCamelCase).map(updateBillStatusBasedOnDate);
+    },
+    add: async(billData: Omit<PayableBill, 'id'>): Promise<PayableBill> => {
+        const { data, error } = await supabase.from('payable_bills').insert(convertObjectKeys(billData, toSnakeCase)).select().single();
+        if(error) throw error;
+        await addLogEntry(`Adicionada conta a pagar: ${data.description}`, 'create', 'bill', {id: data.id});
+        return convertObjectKeys(data, toCamelCase);
+    },
+    update: async(billId: string, billData: Partial<Omit<PayableBill, 'id'>>): Promise<PayableBill> => {
+        const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
+        if (findError) throw findError;
+        const { data, error } = await supabase.from('payable_bills').update(convertObjectKeys(billData, toSnakeCase)).eq('id', billId).select().single();
+        if(error) throw error;
+        await addLogEntry(`Atualizada conta a pagar: ${data.description}`, 'update', 'bill', oldData);
+        return convertObjectKeys(data, toCamelCase);
+    },
+    remove: async(billId: string): Promise<void> => {
+        const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
+        if (findError) throw findError;
+        const { error } = await supabase.from('payable_bills').delete().eq('id', billId);
+        if (error) throw error;
+        await addLogEntry(`Removida conta a pagar: ${oldData.description}`, 'delete', 'bill', oldData);
+    },
+    deleteInstallmentGroup: async(groupId: string): Promise<void> => {
+        const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('installment_group_id', groupId);
+        if (findError) throw findError;
+
+        const { error } = await supabase.from('payable_bills').delete().eq('installment_group_id', groupId);
+        if (error) throw error;
+        await addLogEntry(`Removido grupo de parcelas (${oldData.length} contas)`, 'delete', 'bill', oldData);
+    }
+};
+
+export async function addPayableBill(billData: { description: string, payeeId: string, categoryId: string, amount: number, firstDueDate: string, notes: string, paymentType: 'single' | 'installments' | 'monthly', installments?: number }) {
+    const { paymentType, firstDueDate, installments, ...commonData } = billData;
+    if (paymentType === 'single') {
+        await payableBillsApi.add({ ...commonData, dueDate: firstDueDate, status: 'pending' });
+    } else if (paymentType === 'installments' && installments && installments > 1) {
+        const groupId = crypto.randomUUID();
+        for (let i = 0; i < installments; i++) {
+            const dueDate = new Date(firstDueDate);
+            dueDate.setMonth(dueDate.getMonth() + i);
+            await payableBillsApi.add({ ...commonData, description: `${commonData.description} (${i + 1}/${installments})`, dueDate: dueDate.toISOString().slice(0, 10), status: 'pending', installmentInfo: { current: i + 1, total: installments }, installmentGroupId: groupId });
+        }
+    } else if (paymentType === 'monthly') {
+        const recurringId = crypto.randomUUID();
+        for (let i = 0; i < 12; i++) { // Create for 1 year
+            const dueDate = new Date(firstDueDate);
+            dueDate.setMonth(dueDate.getMonth() + i);
+            await payableBillsApi.add({ ...commonData, dueDate: dueDate.toISOString().slice(0, 10), status: 'pending', recurringId });
+        }
+    }
+}
+
+export async function payBill(billId: string, paymentData: { accountId: string, paidAmount: number, paymentDate: string, attachmentUrl?: string, attachmentFilename?: string }) {
+    const { data: bill } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
+    if (!bill) throw new Error("Bill not found");
+
+    const transaction = await transactionsApi.add({ description: `Pagamento: ${bill.description}`, amount: paymentData.paidAmount, date: new Date(paymentData.paymentDate+'T12:00:00Z').toISOString(), type: 'expense', accountId: paymentData.accountId, categoryId: bill.category_id, payeeId: bill.payee_id, payableBillId: billId, attachmentUrl: paymentData.attachmentUrl, attachmentFilename: paymentData.attachmentFilename });
+    
+    await payableBillsApi.update(billId, { status: 'paid', paidDate: transaction.date, transactionId: transaction.id, attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename });
+}
+
+export const getPayableBillsForLinking = async (): Promise<PayableBill[]> => {
+    const { data, error } = await supabase.from('payable_bills').select('*').in('status', ['pending', 'overdue']);
+    if (error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
+export const linkExpenseToBill = async (billId: string, transactionId: string) => {
+    const { data: trx } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+    if(!trx) throw new Error("Transaction not found");
+    await payableBillsApi.update(billId, { status: 'paid', paidDate: trx.date, transactionId });
+    await transactionsApi.update(transactionId, { payableBillId: billId });
+};
+
+export const getUnlinkedExpenses = async (): Promise<Transaction[]> => {
+    const { data, error } = await supabase.from('transactions').select('*').eq('type', 'expense').is('payable_bill_id', null).order('date', { ascending: false }).limit(50);
+    if(error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
+// --- API: REPORTS & STATS ---
+export const getDashboardStats = async (): Promise<Stats> => {
+    const members = await getMembers();
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const { data: payments, error } = await supabase.from('payments').select('amount').gte('payment_date', startOfMonth.toISOString()).lte('payment_date', endOfMonth.toISOString());
+    if (error) throw error;
+
+    return {
+        totalMembers: members.filter(m => m.activityStatus === 'Ativo').length,
+        onTime: members.filter(m => m.paymentStatus === PaymentStatus.EmDia || m.paymentStatus === PaymentStatus.Adiantado).length,
+        overdue: members.filter(m => m.paymentStatus === PaymentStatus.Atrasado).length,
+        monthlyRevenue: payments.reduce((sum, p) => sum + p.amount, 0),
+    };
+};
+
+export const getOverdueReport = async (): Promise<Member[]> => {
+    const members = await getMembers();
+    return members.filter(m => m.paymentStatus === PaymentStatus.Atrasado && m.activityStatus === 'Ativo');
+};
+
+export const getRevenueReport = async (startDate: string, endDate: string) => {
+    const { data, error } = await supabase.from('payments').select('*, members(name)').gte('payment_date', startDate).lte('payment_date', endDate + 'T23:59:59Z');
+    if (error) throw error;
+    const payments = data.map(p => ({ ...p, memberName: (p.members as any).name, members: undefined }));
+    return {
+        totalRevenue: payments.reduce((sum, p) => sum + p.amount, 0),
+        payments: convertObjectKeys(payments, toCamelCase),
+    };
+};
+
+// FIX: Added explicit return type `Promise<Transaction[]>` to ensure correct type inference in consuming functions like `getDREData`.
+export const getFinancialReport = async (filters: any): Promise<Transaction[]> => {
+    let query = supabase.from('transactions').select('*');
+    if (filters.startDate) query = query.gte('date', filters.startDate);
+    if (filters.endDate) query = query.lte('date', filters.endDate + 'T23:59:59Z');
+    if (filters.type) query = query.eq('type', filters.type);
+    if (filters.categoryId) query = query.eq('category_id', filters.categoryId);
+    if (filters.projectId) query = query.eq('project_id', filters.projectId);
+    if (filters.accountIds?.length) query = query.in('account_id', filters.accountIds);
+    if (filters.tagIds?.length) query = query.contains('tag_ids', filters.tagIds);
+    
+    const { data, error } = await query.order('date', { ascending: false });
+    if(error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
+export const getDREData = async (startDate: string, endDate: string) => {
+    const allTransactions = await getFinancialReport({ startDate, endDate });
+    const allCategories = await categoriesApi.getAll();
+    const categoryMap = new Map(allCategories.map(c => [c.id, c]));
+
+    const createSummary = (type: 'income' | 'expense') => {
+        const details = allTransactions
+            .filter(t => t.type === type && categoryMap.get(t.categoryId)?.name !== 'Mensalidades')
+            .reduce((acc, t) => {
+                const categoryName = categoryMap.get(t.categoryId)?.name || 'Sem Categoria';
+                acc[categoryName] = (acc[categoryName] || 0) + t.amount;
+                return acc;
+            }, {} as Record<string, number>);
+
+        return {
+            total: Object.values(details).reduce((sum, amount) => sum + amount, 0),
+            details: Object.entries(details).map(([categoryName, total]) => ({ categoryName, total })),
+        };
+    };
+
+    const grossRevenueDetails = allTransactions
+        .filter(t => t.type === 'income' && categoryMap.get(t.categoryId)?.name === 'Mensalidades')
+        .reduce((acc, t) => {
+            const categoryName = "Mensalidades";
+            acc[categoryName] = (acc[categoryName] || 0) + t.amount;
+            return acc;
+        }, {} as Record<string, number>);
+    
+    const grossRevenue = {
+        total: Object.values(grossRevenueDetails).reduce((sum, amount) => sum + amount, 0),
+        details: Object.entries(grossRevenueDetails).map(([categoryName, total]) => ({ categoryName, total })),
+    };
+
+    const otherIncome = createSummary('income');
+    const operatingExpenses = createSummary('expense');
+    const netResult = grossRevenue.total + otherIncome.total - operatingExpenses.total;
+
+    return { grossRevenue, otherIncome, operatingExpenses, netResult };
+};
+
+export const getFutureIncomeSummary = async () => {
+    const { data, error } = await supabase.from('transactions').select('amount').eq('type', 'income').gt('date', new Date().toISOString());
+    if(error) throw error;
+    return {
+        count: data.length,
+        totalAmount: data.reduce((sum, t) => sum + t.amount, 0),
+    };
+};
+
+export const getFutureIncomeTransactions = async (): Promise<Transaction[]> => {
+    const { data, error } = await supabase.from('transactions').select('*').eq('type', 'income').gt('date', new Date().toISOString()).order('date');
+    if (error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
+// --- API: LOGS ---
+export const getLogs = async (): Promise<LogEntry[]> => {
+    const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
+    if(error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
+export const undoLogAction = async (logId: string) => {
+    const { data: log, error: logError } = await supabase.from('logs').select('*').eq('id', logId).single();
+    if (logError) throw logError;
+
+    const { action_type: actionType, entity_type: entityType, undo_data: undoData } = log;
+    const tableName = `${entityType}s`; // Simple pluralization
+
+    if (actionType === 'create') {
+        const { error } = await supabase.from(tableName).delete().eq('id', undoData.id);
+        if (error) throw error;
+    } else if (actionType === 'delete') {
+        const { error } = await supabase.from(tableName).insert(undoData);
+        if (error) throw error;
+    } else if (actionType === 'update') {
+        const { error } = await supabase.from(tableName).update(undoData).eq('id', undoData.id);
+        if (error) throw error;
+    } else {
+        throw new Error('Unknown action type');
+    }
+
+    // "soft-delete" the log entry
+    await supabase.from('logs').update({ description: `[DESFEITO] ${log.description}` }).eq('id', logId);
+};
