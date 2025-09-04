@@ -553,7 +553,7 @@ export const TransactionFormPage: React.FC<{
 
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-    const filteredCategories = data.categories.filter((c: Category) => c.type === formState.type);
+    const filteredCategories = data.categories.filter((c: Category) => c.type === formState.type || c.type === 'both');
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">

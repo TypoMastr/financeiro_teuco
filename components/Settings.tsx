@@ -307,7 +307,7 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
     const toast = useToast();
     
     const [name, setName] = useState('');
-    const [type, setType] = useState<'income' | 'expense'>('expense');
+    const [type, setType] = useState<'income' | 'expense' | 'both'>('expense');
     const [initialBalance, setInitialBalance] = useState(0);
     const [balanceStr, setBalanceStr] = useState('R$ 0,00');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -325,7 +325,7 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
                 if (foundItem) {
                     setItem(foundItem);
                     setName(foundItem.name);
-                    if ('type' in foundItem) setType(foundItem.type);
+                    if ('type' in foundItem) setType(foundItem.type as 'income' | 'expense' | 'both');
                     if ('initialBalance' in foundItem) {
                         setInitialBalance(foundItem.initialBalance);
                         setBalanceStr(formatCurrencyForInput(foundItem.initialBalance));
@@ -405,9 +405,10 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
                 {itemType === 'category' && (
                     <div>
                         <label className={labelClass}>Tipo</label>
-                        <select value={type} onChange={e => setType(e.target.value as 'income' | 'expense')} className={inputClass}>
+                        <select value={type} onChange={e => setType(e.target.value as 'income' | 'expense' | 'both')} className={inputClass}>
                             <option value="expense">Despesa</option>
                             <option value="income">Receita</option>
+                            <option value="both">Ambos (Receita e Despesa)</option>
                         </select>
                     </div>
                 )}

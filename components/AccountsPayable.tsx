@@ -56,7 +56,7 @@ const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: ViewStat
             const [bills, payees, categories, accounts] = await Promise.all([
                 payableBillsApi.getAll(), payeesApi.getAll(), categoriesApi.getAll(), accountsApi.getAll()
             ]);
-            setData({ bills, payees, categories: categories.filter(c => c.type === 'expense'), accounts });
+            setData({ bills, payees, categories: categories.filter(c => c.type === 'expense' || c.type === 'both'), accounts });
         } catch (error) {
             console.error("Failed to fetch accounts payable data", error);
         } finally {
@@ -292,7 +292,7 @@ export const BillFormPage: React.FC<{ viewState: ViewState, setView: (view: View
             setLoading(true);
             const [payees, categories, allBills] = await Promise.all([payeesApi.getAll(), categoriesApi.getAll(), isEdit ? payableBillsApi.getAll() : []]);
             const bill = isEdit ? allBills.find(b => b.id === billId) : undefined;
-            setData({ bill, payees, categories: categories.filter(c => c.type === 'expense') });
+            setData({ bill, payees, categories: categories.filter(c => c.type === 'expense' || c.type === 'both') });
             if (bill) {
                 setFormData({ description: bill.description, payeeId: bill.payeeId, categoryId: bill.categoryId, amount: bill.amount, firstDueDate: bill.dueDate, notes: bill.notes || '', installments: bill.installmentInfo?.total || 2 });
                 setAmountStr(formatCurrencyForInput(bill.amount));
