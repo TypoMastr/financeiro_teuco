@@ -85,6 +85,7 @@ export interface Transaction {
   payableBillId?: string;
   attachmentUrl?: string;
   attachmentFilename?: string;
+  runningBalance?: number;
 }
 
 export interface PayableBill {

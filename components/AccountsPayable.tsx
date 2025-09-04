@@ -182,7 +182,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                 </div>
                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
                      <p className={`text-base sm:text-lg font-bold font-mono text-right sm:text-left ${statusColors.text}`}>
-                        {bill.isEstimate && <span title="Valor estimado">(est.) </span>}
+                        {bill.isEstimate && <span className="font-normal" title="Valor estimado">(est.) </span>}
                         {formatCurrency(bill.amount)}
                      </p>
                     <div className="flex gap-2 justify-end">
@@ -332,13 +332,22 @@ export const BillFormPage: React.FC<{
         } catch (error: any) {
             console.error("Failed to save bill:", error);
             let message = "Ocorreu um erro desconhecido.";
-            if (error) {
-                if (typeof error.message === 'string' && error.message.trim() !== '') {
-                    message = error.message;
-                } else if (typeof error.details === 'string' && error.details.trim() !== '') {
-                    message = error.details;
-                } else if (typeof error === 'string') {
-                    message = error;
+            if (error instanceof Error) {
+                message = error.message;
+            } else if (error && typeof error.message === 'string' && error.message.trim()) {
+                message = error.message;
+            } else if (error && typeof error.details === 'string' && error.details.trim()) {
+                message = error.details;
+            } else if (typeof error === 'string' && error.trim()) {
+                message = error;
+            } else {
+                try {
+                    const errorString = JSON.stringify(error);
+                    if (errorString !== '{}') {
+                       message = errorString;
+                    }
+                } catch (e) {
+                    // Could not stringify, stick with default message
                 }
             }
             toast.error(`Falha ao salvar conta: ${message}`);
@@ -471,13 +480,22 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
         } catch (error: any) {
             console.error("Failed to pay bill:", error);
             let message = "Ocorreu um erro desconhecido.";
-            if (error) {
-                if (typeof error.message === 'string' && error.message.trim() !== '') {
-                    message = error.message;
-                } else if (typeof error.details === 'string' && error.details.trim() !== '') {
-                    message = error.details;
-                } else if (typeof error === 'string') {
-                    message = error;
+            if (error instanceof Error) {
+                message = error.message;
+            } else if (error && typeof error.message === 'string' && error.message.trim()) {
+                message = error.message;
+            } else if (error && typeof error.details === 'string' && error.details.trim()) {
+                message = error.details;
+            } else if (typeof error === 'string' && error.trim()) {
+                message = error;
+            } else {
+                try {
+                    const errorString = JSON.stringify(error);
+                    if (errorString !== '{}') {
+                       message = errorString;
+                    }
+                } catch (e) {
+                    // Could not stringify, stick with default message
                 }
             }
             toast.error(`Falha ao pagar conta: ${message}`);

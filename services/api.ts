@@ -829,6 +829,58 @@ export const getFinancialReport = async (filters: any): Promise<Transaction[]> =
     return convertObjectKeys(data, toCamelCase);
 };
 
+export const getAccountHistory = async (accountId: string, filters: any): Promise<{ transactions: Transaction[], openingBalance: number, closingBalance: number }> => {
+    // 1. Get account initial balance
+    const { data: account, error: accError } = await supabase.from('accounts').select('initial_balance').eq('id', accountId).single();
+    if (accError) throw accError;
+    const initialBalance = account.initial_balance;
+
+    // 2. Calculate opening balance (transactions before start date)
+    const { data: previousTransactions, error: prevTrxError } = await supabase
+        .from('transactions')
+        .select('type, amount')
+        .eq('account_id', accountId)
+        .lt('date', filters.startDate);
+
+    if (prevTrxError) throw prevTrxError;
+
+    const openingBalance = previousTransactions.reduce((balance, trx) => {
+        return balance + (trx.type === 'income' ? trx.amount : -trx.amount);
+    }, initialBalance);
+
+    // 3. Fetch period transactions (sorted ascending)
+    let periodQuery = supabase
+        .from('transactions')
+        .select('*')
+        .eq('account_id', accountId);
+
+    if (filters.startDate) periodQuery = periodQuery.gte('date', filters.startDate);
+    if (filters.endDate) periodQuery = periodQuery.lte('date', filters.endDate + 'T23:59:59Z');
+    if (filters.type) periodQuery = periodQuery.eq('type', filters.type);
+    if (filters.categoryId) periodQuery = periodQuery.eq('category_id', filters.categoryId);
+
+    const { data: periodTransactionsData, error: periodTrxError } = await periodQuery.order('date', { ascending: true });
+    if (periodTrxError) throw periodTrxError;
+
+    const periodTransactions = convertObjectKeys(periodTransactionsData, toCamelCase) as Transaction[];
+
+    // 4. Calculate running balance
+    let currentBalance = openingBalance;
+    const transactionsWithBalance = periodTransactions.map(trx => {
+        currentBalance += (trx.type === 'income' ? trx.amount : -trx.amount);
+        return { ...trx, runningBalance: currentBalance };
+    });
+
+    const closingBalance = currentBalance;
+
+    // 5. Return reversed for display
+    return {
+        transactions: transactionsWithBalance.reverse(), // Newest first
+        openingBalance,
+        closingBalance
+    };
+};
+
 export const getDREData = async (startDate: string, endDate: string) => {
     const allTransactions = await getFinancialReport({ startDate, endDate });
     const allCategories = await categoriesApi.getAll();

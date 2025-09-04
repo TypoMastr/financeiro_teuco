@@ -381,6 +381,7 @@ export const TransactionFormPage: React.FC<{
     const { transactionId, returnView = { name: 'financial' } } = viewState as { name: 'transaction-form', transactionId?: string, returnView?: ViewState };
     const isEdit = !!transactionId;
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [] });
     const [transaction, setTransaction] = useState<Transaction | undefined>(undefined);
     const toast = useToast();
@@ -415,27 +416,50 @@ export const TransactionFormPage: React.FC<{
     const [showPaymentLinkUI, setShowPaymentLinkUI] = useState(false);
 
     useEffect(() => {
+        let isCancelled = false;
+    
         const loadAllData = async () => {
-            setLoading(true);
-            const [cats, pys, tgs, projs, accs, membs, allTransactions] = await Promise.all([
-                categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll()
-            ]);
-            setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs });
-            if (isEdit && transactionId) {
-                const trx = allTransactions.find(t => t.id === transactionId);
-                setTransaction(trx);
-                if (trx && trx.type === 'income') {
-                    const payment = await getPaymentByTransactionId(trx.id);
-                    if (payment) {
-                        setPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
-                        setShowPaymentLinkUI(true);
+            try {
+                const [cats, pys, tgs, projs, accs, membs, allTransactions] = await Promise.all([
+                    categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll()
+                ]);
+    
+                if (isCancelled) return;
+    
+                if (isEdit && transactionId) {
+                    const trx = allTransactions.find(t => t.id === transactionId);
+                    if (!trx) {
+                        throw new Error("Transação não encontrada.");
+                    }
+                    setTransaction(trx);
+                    if (trx.type === 'income') {
+                        const payment = await getPaymentByTransactionId(trx.id);
+                        if (isCancelled) return;
+                        if (payment) {
+                            setPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
+                            setShowPaymentLinkUI(true);
+                        }
                     }
                 }
+                setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs });
+            } catch (err: any) {
+                if (isCancelled) return;
+                console.error("Falha ao carregar dados da transação:", err);
+                toast.error("Não foi possível carregar os dados.");
+                setError(err.message || "Erro desconhecido ao carregar dados.");
+            } finally {
+                if (!isCancelled) {
+                    setLoading(false);
+                }
             }
-            setLoading(false);
         };
+        
         loadAllData();
-    }, [transactionId, isEdit]);
+        
+        return () => {
+            isCancelled = true;
+        };
+    }, [transactionId, isEdit, toast]);
 
     useEffect(() => {
         if (transaction) {
@@ -551,6 +575,25 @@ export const TransactionFormPage: React.FC<{
     }, [formState.payableBillId, availableBills]);
 
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+
+    if (error) {
+        return (
+            <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center py-20 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border max-w-lg mx-auto"
+            >
+                <p className="text-lg font-bold text-danger mb-2">Erro ao Carregar</p>
+                <p className="text-muted-foreground mb-6">{error}</p>
+                <button 
+                    onClick={() => setView(returnView)} 
+                    className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-md hover:opacity-90"
+                >
+                    Voltar
+                </button>
+            </motion.div>
+        );
+    }
 
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";

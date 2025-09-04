@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Members } from './components/Members';
@@ -12,7 +8,8 @@ import Financial, { TransactionFormPage, ReportFiltersPage, FutureIncomePage } f
 import { Settings, SettingsItemFormPage, SettingsListPage } from './components/Settings';
 import FinancialDetail from './components/FinancialDetail';
 import { TransactionHistory } from './components/TransactionHistory';
-import { motion, AnimatePresence } from 'framer-motion';
+// FIX: Import MotionProps to explicitly type animation properties, resolving a TypeScript error.
+import { motion, AnimatePresence, MotionProps } from 'framer-motion';
 // FIX: Import ViewState from the corrected types.ts file.
 import { ViewState } from './types';
 import { BottomNav } from './components/BottomNav';
@@ -112,6 +109,24 @@ const App: React.FC = () => {
     }
     return v.name;
   }
+  
+  const noAnimation = view.name === 'transaction-history' || view.name === 'transaction-form';
+  
+  // FIX: Explicitly typed `animationProps` with `MotionProps` to prevent TypeScript from inferring `ease` as a generic `string`, which caused a type error.
+  const animationProps: MotionProps = noAnimation
+    ? {
+        initial: { opacity: 1, y: 0 },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 1, y: 0 },
+        transition: { duration: 0 }
+    }
+    : {
+        initial: { opacity: 0, y: 20 },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: -20 },
+        transition: { duration: 0.25, ease: 'easeInOut' }
+    };
+
 
   return (
     <ToastProvider>
@@ -135,11 +150,8 @@ const App: React.FC = () => {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.25, ease: 'easeInOut' }}
                   className="w-full max-w-7xl mx-auto"
+                  {...animationProps}
                 >
                   {renderView()}
                 </motion.div>
