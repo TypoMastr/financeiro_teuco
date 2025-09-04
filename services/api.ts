@@ -267,6 +267,39 @@ export const addIncomeTransactionAndPayment = async (
         finalAttachmentUrl = await uploadAttachment(paymentData.attachmentUrl, paymentData.attachmentFilename);
     }
 
+    // Dynamically find or create "Mensalidades" category ID
+    let mensalidadesCategoryId: string;
+
+    const { data: existingCategories, error: catError } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('name', 'Mensalidades')
+        .eq('type', 'income')
+        .limit(1);
+
+    if (catError) {
+        console.error("Error fetching 'Mensalidades' category:", catError);
+        throw new Error('Erro ao buscar a categoria de mensalidades.');
+    }
+
+    if (existingCategories && existingCategories.length > 0) {
+        mensalidadesCategoryId = existingCategories[0].id;
+    } else {
+        // Category doesn't exist, so create it
+        const { data: newCategory, error: createCatError } = await supabase
+            .from('categories')
+            .insert({ name: 'Mensalidades', type: 'income' })
+            .select('id')
+            .single();
+        
+        if (createCatError) {
+            console.error("Error creating 'Mensalidades' category:", createCatError);
+            throw new Error('Não foi possível criar a categoria "Mensalidades" automaticamente.');
+        }
+        mensalidadesCategoryId = newCategory.id;
+        await addLogEntry('Criada categoria "Mensalidades" automaticamente', 'create', 'category', { id: newCategory.id });
+    }
+
     // 1. Create Transaction
     const { data: trxData, error: trxError } = await supabase.from('transactions').insert({
         description: transactionData.description,
@@ -274,7 +307,7 @@ export const addIncomeTransactionAndPayment = async (
         date: transactionData.date,
         type: 'income',
         account_id: transactionData.accountId,
-        category_id: 'a1b2c3d4-e5f6-7890-1234-567890abcdef', // Default "Mensalidades" Category ID
+        category_id: mensalidadesCategoryId,
         comments: transactionData.comments,
         attachment_url: finalAttachmentUrl,
         attachment_filename: paymentData.attachmentFilename

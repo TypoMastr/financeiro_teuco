@@ -476,11 +476,13 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
         e.preventDefault();
         if (isSubmitting || !member || !month || !returnView) return;
 
+        if (!formState.accountId) {
+            toast.error("Nenhuma conta de destino selecionada. Por favor, crie uma conta em Ajustes.");
+            return;
+        }
+
         setIsSubmitting(true);
         try {
-            // FIX: Corrected the object properties to match the function signature.
-            // Removed `type` and `categoryId`.
-            // Moved `attachmentUrl` and `attachmentFilename` to the second argument.
             await addIncomeTransactionAndPayment(
               { 
                 description: `Mensalidade ${member.name} - ${new Date(month + '-02').toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'})}`,
@@ -498,9 +500,9 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
             );
             toast.success("Pagamento registrado com sucesso!");
             setView(returnView);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Erro ao registrar pagamento:", error);
-            toast.error("Falha ao registrar pagamento.");
+            toast.error(error.message || "Falha ao registrar pagamento.");
             setIsSubmitting(false);
         }
     };
