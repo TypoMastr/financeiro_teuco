@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// FIX: Import types from the corrected types.ts file.
 import { Member, PaymentStatus, ActivityStatus, SortOption, ViewState } from '../types';
 // FIX: Changed import from mockApi.ts to api.ts
 import { getMembers } from '../services/api';

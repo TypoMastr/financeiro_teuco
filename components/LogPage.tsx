@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // FIX: Import `Variants` type from framer-motion to explicitly type animation variants.
 import { motion, AnimatePresence, Variants } from 'framer-motion';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState, LogEntry } from '../types';
 import { getLogs, undoLogAction } from '../services/api';
 import { History, Undo, X as XIcon, AlertTriangle } from './Icons';

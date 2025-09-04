@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+// FIX: Import types from the corrected types.ts file.
 import { Member, ViewState } from '../types';
 import { getMemberById, addMember, updateMember } from '../services/api';
 import { motion, Variants } from 'framer-motion';
@@ -153,7 +154,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
     }
     
-    const goBack = () => isEditMode ? setView({ name: 'member-profile', id: memberId }) : setView({ name: 'members' });
+    const goBack = () => isEditMode && memberId ? setView({ name: 'member-profile', id: memberId }) : setView({ name: 'members' });
 
     return (
         <form 

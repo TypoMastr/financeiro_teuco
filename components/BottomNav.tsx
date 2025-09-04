@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState } from '../types';
 import { Dashboard, Users, DollarSign, Settings, ClipboardList, FileText, Plus, Folder, X, History } from './Icons';
 

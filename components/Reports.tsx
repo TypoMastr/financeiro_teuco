@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { getOverdueReport, getRevenueReport, getDREData } from '../services/api';
 import { motion, Variants } from 'framer-motion';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState } from '../types';
 import { AlertTriangle, TrendingUp, FileSearch, BarChartHorizontal } from './Icons';
 import { DateField } from './common/PageLayout';

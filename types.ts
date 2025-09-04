@@ -1,3 +1,4 @@
+// types.ts
 
 export enum PaymentStatus {
   EmDia = 'Em Dia',
@@ -7,83 +8,11 @@ export enum PaymentStatus {
 
 export type ActivityStatus = 'Ativo' | 'Inativo';
 export type SortOption = 'name_asc' | 'name_desc';
-export type ItemType = 'account' | 'category' | 'tag' | 'payee' | 'project';
-export type ActionType = 'create' | 'update' | 'delete';
-export type EntityType = 'member' | 'payment' | 'transaction' | 'bill' | 'account' | 'category' | 'tag' | 'payee' | 'project';
-
-
-export type ViewName =
-  | 'overview'
-  | 'members'
-  | 'member-profile'
-  | 'add-member'
-  | 'edit-member'
-  | 'report-view'
-  | 'financial'
-  | 'settings'
-  | 'financial-detail'
-  | 'transaction-history'
-  | 'reports'
-  | 'accounts-payable'
-  | 'log'
-  // Page-based views that replace modals
-  | 'payment-form'
-  | 'transaction-form'
-  | 'financial-report-form'
-  | 'future-income-view'
-  | 'setting-item-form'
-  | 'setting-list'
-  | 'bill-form'
-  | 'pay-bill-form'
-  | 'delete-bill-confirmation'
-  | 'attachment-view'
-  | 'batch-transaction-form'
-  | 'ofx-import-form';
-
-export type ReportData = {
-    type: 'overdue' | 'revenue' | 'financial' | 'dre';
-    data: any;
-    generatedAt: string;
-    title?: string;
-};
-
-export interface ViewState {
-  name: ViewName;
-  returnView?: ViewState; // Defines where the "back" button leads
-  componentState?: any; // Stores UI state like filters, open tabs, etc.
-  // Generic IDs
-  id?: string | null; // Primary ID, often memberId
-  transactionId?: string;
-  billId?: string;
-  itemId?: string; // For settings
-  accountId?: string;
-  filterId?: string;
-  // Page specific props
-  month?: string; // For payment-form
-  itemType?: ItemType; // for setting-item-form
-  attachmentUrl?: string;
-  // For reports
-  report?: ReportData;
-  // Financial navigation params
-  filterType?: 'category' | 'project' | 'tag';
-  filterName?: string;
-}
+export type ItemType = 'account' | 'category' | 'payee' | 'tag' | 'project';
 
 export interface OverdueMonth {
-  month: string; // "YYYY-MM"
+  month: string;
   amount: number;
-}
-
-export interface Payment {
-  id: string;
-  memberId: string;
-  amount: number;
-  paymentDate: string; // ISO string format
-  referenceMonth: string; // YYYY-MM
-  comments?: string;
-  attachmentUrl?: string; // URL for the attachment
-  attachmentFilename?: string; // Original filename
-  transactionId?: string; // Link to the financial transaction
 }
 
 export interface Member {
@@ -91,32 +20,32 @@ export interface Member {
   name: string;
   email: string;
   phone: string;
-  joinDate: string; // ISO string format
+  joinDate: string;
+  birthday?: string;
   monthlyFee: number;
   activityStatus: ActivityStatus;
-  birthday?: string; // YYYY-MM-DD
-  
-  // Campos calculados pela API
   paymentStatus: PaymentStatus;
   overdueMonthsCount: number;
   overdueMonths: OverdueMonth[];
   totalDue: number;
 }
 
-export interface Stats {
-  totalMembers: number;
-  onTime: number;
-  overdue: number;
-  monthlyRevenue: number;
+export interface Payment {
+  id: string;
+  memberId: string;
+  amount: number;
+  paymentDate: string;
+  referenceMonth: string;
+  comments?: string;
+  transactionId?: string;
+  attachmentUrl?: string;
+  attachmentFilename?: string;
 }
-
-// --- Financial Module Types ---
 
 export interface Account {
   id: string;
   name: string;
   initialBalance: number;
-  // calculated
   currentBalance?: number;
 }
 
@@ -145,7 +74,7 @@ export interface Transaction {
   id: string;
   description: string;
   amount: number;
-  date: string; // ISO String
+  date: string;
   type: 'income' | 'expense';
   accountId: string;
   categoryId: string;
@@ -164,26 +93,71 @@ export interface PayableBill {
   payeeId: string;
   categoryId: string;
   amount: number;
-  dueDate: string; // YYYY-MM-DD
+  dueDate: string;
   status: 'pending' | 'paid' | 'overdue';
-  paidDate?: string; // ISO String
+  paidDate?: string;
   transactionId?: string;
   notes?: string;
+  recurringId?: string;
   installmentInfo?: {
-    total: number;
     current: number;
+    total: number;
   };
   installmentGroupId?: string;
-  recurringId?: string;
   attachmentUrl?: string;
   attachmentFilename?: string;
 }
 
+export type ActionType = 'create' | 'update' | 'delete';
+export type EntityType = 'member' | 'payment' | 'transaction' | 'category' | 'tag' | 'payee' | 'project' | 'account' | 'bill';
+
 export interface LogEntry {
   id: string;
-  timestamp: string; // ISO Date String
+  timestamp: string;
   description: string;
   actionType: ActionType;
   entityType: EntityType;
   undoData: any;
 }
+
+export interface Stats {
+  totalMembers: number;
+  onTime: number;
+  overdue: number;
+  monthlyRevenue: number;
+}
+
+export interface ReportData {
+  type: 'overdue' | 'revenue' | 'financial' | 'dre';
+  data: any;
+  generatedAt: string;
+  title?: string;
+}
+
+export type ViewState =
+  | { name: 'overview' }
+  | { name: 'members' }
+  | { name: 'member-profile'; id: string; componentState?: any }
+  | { name: 'add-member' }
+  | { name: 'edit-member'; id: string }
+  | { name: 'financial'; componentState?: any }
+  | { name: 'financial-detail', filterType: 'category' | 'project' | 'tag', filterId: string, filterName: string, componentState?: any }
+  | { name: 'transaction-history', accountId: string, componentState?: any }
+  | { name: 'accounts-payable'; componentState?: any }
+  | { name: 'settings' }
+  | { name: 'reports' }
+  | { name: 'log' }
+  | { name: 'report-view', report: ReportData }
+  | { name: 'payment-form', id: string, month: string, returnView: ViewState }
+  | { name: 'edit-payment-form', id: string, paymentId: string, returnView: ViewState }
+  | { name: 'transaction-form', transactionId?: string, returnView: ViewState }
+  | { name: 'financial-report-form', returnView: ViewState }
+  | { name: 'future-income-view', returnView: ViewState }
+  | { name: 'setting-list', itemType: ItemType, returnView?: ViewState }
+  | { name: 'setting-item-form', itemType: ItemType, itemId?: string, returnView?: ViewState }
+  | { name: 'bill-form', billId?: string, returnView: ViewState }
+  | { name: 'pay-bill-form', billId: string, returnView: ViewState }
+  | { name: 'delete-bill-confirmation', billId: string, returnView: ViewState }
+  | { name: 'attachment-view', attachmentUrl: string, returnView: ViewState }
+  | { name: 'batch-transaction-form', returnView: ViewState }
+  | { name: 'ofx-import-form', returnView: ViewState };

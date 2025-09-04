@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from './Icons';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState } from '../types';
 
 interface AttachmentViewProps {
@@ -9,7 +10,7 @@ interface AttachmentViewProps {
 }
 
 export const AttachmentViewer: React.FC<AttachmentViewProps> = ({ viewState, setView }) => {
-    const { attachmentUrl, returnView } = viewState;
+    const { attachmentUrl, returnView } = viewState as { name: 'attachment-view', attachmentUrl: string, returnView: ViewState };
 
     if (!attachmentUrl || !returnView) {
         if (returnView) setView(returnView);

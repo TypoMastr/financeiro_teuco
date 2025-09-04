@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState, ItemType, Account, Category, Payee, Tag, Project } from '../types';
 import { accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi } from '../services/api';
 import { PageHeader, SubmitButton } from './common/PageLayout';
@@ -197,7 +198,7 @@ const labelsMap: Record<ItemType, { singular: string, plural: string }> = {
 };
 
 export const SettingsListPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { itemType, returnView = { name: 'settings' } } = viewState as { itemType: ItemType, returnView?: ViewState };
+    const { itemType, returnView = { name: 'settings' } } = viewState as { name: 'setting-list', itemType: ItemType, returnView?: ViewState };
     const [items, setItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const toast = useToast();
@@ -321,7 +322,7 @@ export const SettingsListPage: React.FC<{ viewState: ViewState, setView: (view: 
 // --- Item Form Page ---
 
 export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { itemType, itemId, returnView } = viewState as { itemType: ItemType, itemId?: string, returnView?: ViewState };
+    const { itemType, itemId, returnView } = viewState as { name: 'setting-item-form', itemType: ItemType, itemId?: string, returnView?: ViewState };
     const isEdit = !!itemId;
     const api = apiMap[itemType];
     const labels = labelsMap[itemType];
@@ -369,7 +370,7 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
         setIsSubmitting(true);
         try {
             const { id, ...dataToSave } = formData;
-            if (isEdit) {
+            if (isEdit && itemId) {
                 await api.update(itemId, dataToSave);
             } else {
                 await api.add(dataToSave);

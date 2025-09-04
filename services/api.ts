@@ -239,6 +239,85 @@ export const getPaymentByTransactionId = async (transactionId: string): Promise<
     return data ? convertObjectKeys(data, toCamelCase) : undefined;
 };
 
+export const getPaymentDetails = async (paymentId: string): Promise<{ payment: Payment, transaction: Transaction } | null> => {
+    const { data: paymentData, error: paymentError } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('id', paymentId)
+        .single();
+
+    if (paymentError || !paymentData) {
+        console.error('Error fetching payment for editing:', paymentError);
+        return null;
+    }
+
+    if (!paymentData.transaction_id) {
+        console.error('Payment has no associated transaction:', paymentData);
+        return null;
+    }
+
+    const { data: transactionData, error: transactionError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', paymentData.transaction_id)
+        .single();
+
+    if (transactionError || !transactionData) {
+        console.error('Error fetching transaction for payment:', transactionError);
+        return null;
+    }
+
+    return {
+        payment: convertObjectKeys(paymentData, toCamelCase),
+        transaction: convertObjectKeys(transactionData, toCamelCase),
+    };
+};
+
+export const updatePaymentAndTransaction = async (
+    paymentId: string,
+    transactionId: string,
+    formData: {
+        paymentDate: string;
+        comments: string;
+        attachmentUrl: string;
+        attachmentFilename: string;
+        accountId: string;
+    }
+) => {
+    let finalAttachmentUrl = formData.attachmentUrl;
+    if (formData.attachmentUrl && formData.attachmentUrl.startsWith('blob:') && formData.attachmentFilename) {
+        finalAttachmentUrl = await uploadAttachment(formData.attachmentUrl, formData.attachmentFilename);
+    }
+    
+    const { data: oldPaymentData, error: findPaymentError } = await supabase.from('payments').select('*').eq('id', paymentId).single();
+    if (findPaymentError) throw findPaymentError;
+
+    const { data: oldTransactionData, error: findTransactionError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+    if (findTransactionError) throw findTransactionError;
+
+    const { data: updatedTransaction, error: updateTrxErr } = await supabase.from('transactions').update({
+        date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
+        account_id: formData.accountId,
+        comments: formData.comments,
+        attachment_url: finalAttachmentUrl,
+        attachment_filename: formData.attachmentFilename,
+    }).eq('id', transactionId).select().single();
+    if (updateTrxErr) throw updateTrxErr;
+    
+    await addLogEntry(`Atualizada transação de pagamento: ${updatedTransaction.description}`, 'update', 'transaction', oldTransactionData);
+
+    const { error: updatePayErr } = await supabase.from('payments').update({
+        payment_date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
+        comments: formData.comments,
+        attachment_url: finalAttachmentUrl,
+        attachment_filename: formData.attachmentFilename,
+    }).eq('id', paymentId);
+    if (updatePayErr) throw updatePayErr;
+
+    await addLogEntry(`Atualizado pagamento ref. ${oldPaymentData.reference_month}`, 'update', 'payment', oldPaymentData);
+};
+
+
 export const deletePayment = async (paymentId: string): Promise<void> => {
     const { data: paymentToDelete, error: findError } = await supabase.from('payments').select('*').eq('id', paymentId).single();
     if (findError) throw findError;

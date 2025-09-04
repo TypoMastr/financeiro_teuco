@@ -57,7 +57,8 @@ const FinancialDetail: React.FC<{
     viewState: ViewState;
     setView: (view: ViewState) => void;
 }> = ({ viewState, setView }) => {
-    const { filterType, filterId, filterName, componentState } = viewState as Required<ViewState>;
+    // FIX: Correctly cast viewState to the specific discriminated union type to access its properties.
+    const { filterType, filterId, filterName, componentState } = viewState as { name: 'financial-detail', filterType: 'category' | 'project' | 'tag', filterId: string, filterName: string, componentState?: any };
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);

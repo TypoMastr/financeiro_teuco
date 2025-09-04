@@ -7,7 +7,8 @@ import { useToast } from './Notifications';
 import { UploadCloud } from './Icons';
 
 export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { returnView = { name: 'financial' } } = viewState;
+    // FIX: Cast viewState to the correct discriminated union type to access its properties.
+    const { returnView = { name: 'financial' } } = viewState as { name: 'batch-transaction-form', returnView: ViewState };
     const toast = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -110,7 +111,8 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
 };
 
 export const OfxImportFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { returnView = { name: 'financial' } } = viewState;
+    // FIX: Cast viewState to the correct discriminated union type to access its properties.
+    const { returnView = { name: 'financial' } } = viewState as { name: 'ofx-import-form', returnView: ViewState };
     const toast = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loading, setLoading] = useState(true);

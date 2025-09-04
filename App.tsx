@@ -1,9 +1,11 @@
 
 
+
+
 import React, { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Members } from './components/Members';
-import MemberProfile, { PaymentFormPage } from './components/MemberProfile';
+import MemberProfile, { PaymentFormPage, PaymentEditFormPage } from './components/MemberProfile';
 import MemberForm from './components/MemberForm';
 import PrintableReport from './components/PrintableReport';
 import Financial, { TransactionFormPage, ReportFiltersPage, FutureIncomePage } from './components/Financial';
@@ -11,10 +13,12 @@ import { Settings, SettingsItemFormPage, SettingsListPage } from './components/S
 import FinancialDetail from './components/FinancialDetail';
 import { TransactionHistory } from './components/TransactionHistory';
 import { motion, AnimatePresence } from 'framer-motion';
+// FIX: Import ViewState from the corrected types.ts file.
 import { ViewState } from './types';
 import { BottomNav } from './components/BottomNav';
 import { Reports } from './components/Reports';
-import AccountsPayable, { BillFormPage, PayBillPage, DeleteBillConfirmationPage } from './components/AccountsPayable';
+// FIX: Changed import to be a named import as AccountsPayable is not a default export.
+import { AccountsPayable, BillFormPage, PayBillPage, DeleteBillConfirmationPage } from './components/AccountsPayable';
 import { Overview } from './components/Overview';
 import { AttachmentViewer } from './components/AttachmentViewer';
 // FIX: Added ToastContainer to the import as it is now correctly exported.
@@ -72,6 +76,8 @@ const App: React.FC = () => {
       // New Page Views (replacing modals)
       case 'payment-form':
         return <PaymentFormPage viewState={view} setView={setView} />;
+      case 'edit-payment-form':
+        return <PaymentEditFormPage viewState={view} setView={setView} />;
       case 'transaction-form':
         return <TransactionFormPage viewState={view} setView={setView} />;
       case 'financial-report-form':
@@ -101,7 +107,10 @@ const App: React.FC = () => {
   };
   
   const getAnimationKey = (v: ViewState) => {
-    return v.name + (v.id || '') + (v.transactionId || '') + (v.billId || '') + (v.itemId || '') + (v.itemType || '') + (v.report?.type || '') + (v.accountId || '') + (v.filterId || '');
+    if ('id' in v || 'transactionId' in v || 'billId' in v || 'itemId' in v || 'itemType' in v || 'report' in v || 'accountId' in v || 'filterId' in v || 'paymentId' in v) {
+        return v.name + (('id' in v) ? v.id : '') + (('transactionId' in v) ? v.transactionId : '') + (('billId' in v) ? v.billId : '') + (('itemId' in v) ? v.itemId : '') + (('itemType' in v) ? v.itemType : '') + (('report' in v) ? v.report?.type : '') + (('accountId' in v) ? v.accountId : '') + (('filterId' in v) ? v.filterId : '') + (('paymentId' in v) ? v.paymentId : '');
+    }
+    return v.name;
   }
 
   return (

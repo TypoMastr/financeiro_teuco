@@ -1,7 +1,9 @@
 
 
+
 import React from 'react';
 import { motion, Variants } from 'framer-motion';
+// FIX: Import types from the corrected types.ts file.
 import { ReportData, ViewState, Member, Transaction, Category, Payee, Account } from '../types';
 import { ArrowLeft, Printer, ClubLogo } from './Icons';
 

@@ -1,6 +1,8 @@
 
 
+
 import React from 'react';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState } from '../types';
 
 

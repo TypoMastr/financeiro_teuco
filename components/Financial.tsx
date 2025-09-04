@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// FIX: Import types from the corrected types.ts file.
 import { ViewState, Account, Transaction, Category, Payee, Tag, Member, Project, PayableBill, Payment } from '../types';
 // FIX: Removed unused 'linkTransactionToPayment' import which caused an error.
 import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink } from '../services/api';
@@ -181,7 +182,7 @@ const MemberSearchableSelect: React.FC<{
 
 // --- Main Component ---
 const Financial: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { componentState } = viewState;
+    const { componentState } = viewState as { name: 'financial', componentState?: any };
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<any>({ accounts: [], transactions: [], categories: [], payees: [], tags: [], projects: [], members: [] });
     const [activeTab, setActiveTab] = useState<'category' | 'project' | 'tag'>(componentState?.activeTab || 'category');
@@ -377,7 +378,7 @@ export const TransactionFormPage: React.FC<{
     viewState: ViewState;
     setView: (view: ViewState) => void;
 }> = ({ viewState, setView }) => {
-    const { transactionId, returnView = { name: 'financial' } } = viewState;
+    const { transactionId, returnView = { name: 'financial' } } = viewState as { name: 'transaction-form', transactionId?: string, returnView?: ViewState };
     const isEdit = !!transactionId;
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [] });
@@ -645,7 +646,7 @@ export const TransactionFormPage: React.FC<{
 
 
 export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { returnView = { name: 'financial' } } = viewState;
+    const { returnView = { name: 'financial' } } = viewState as { name: 'financial-report-form', returnView?: ViewState };
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<any>({ categories: [], tags: [], payees: [], projects: [], accounts: [] });
     const [filters, setFilters] = useState({ type: '', categoryId: '', payeeId: '', tagIds: [] as string[], projectId: '', accountIds: [] as string[], startDate: '', endDate: '' });
@@ -660,7 +661,7 @@ export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view:
     }, []);
 
     const handleGenerate = async () => {
-        const activeFilters = Object.entries(filters).reduce((acc, [key, value]) => { if (value && (!Array.isArray(value) || value.length > 0)) acc[key] = value; return acc; }, {} as any);
+        const activeFilters = Object.entries(filters).reduce((acc, [key, value]) => { if (value && (!Array.isArray(value) || value.length > 0)) (acc as any)[key] = value; return acc; }, {} as any);
         const reportData = await getFinancialReport(activeFilters);
         setView({
             name: 'report-view', report: { type: 'financial', data: { transactions: reportData, allData: { categories: data.categories, payees: data.payees, tags: data.tags, accounts: data.accounts, projects: data.projects } }, generatedAt: new Date().toISOString(), title: "Relatório Financeiro Personalizado" }
@@ -719,7 +720,7 @@ export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view:
 };
 
 export const FutureIncomePage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { returnView = { name: 'financial' } } = viewState;
+    const { returnView = { name: 'financial' } } = viewState as { name: 'future-income-view', returnView?: ViewState };
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
 

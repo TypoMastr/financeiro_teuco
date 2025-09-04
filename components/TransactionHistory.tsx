@@ -69,7 +69,8 @@ export const TransactionHistory: React.FC<{
     viewState: ViewState;
     setView: (view: ViewState) => void;
 }> = ({ viewState, setView }) => {
-    const { accountId, componentState } = viewState;
+    // FIX: Cast viewState to the correct discriminated union type to access its properties.
+    const { accountId, componentState } = viewState as { name: 'transaction-history', accountId: string, componentState?: any };
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [allAccounts, setAllAccounts] = useState<Account[]>([]);
