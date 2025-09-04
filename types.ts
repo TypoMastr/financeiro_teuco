@@ -106,6 +106,7 @@ export interface PayableBill {
   installmentGroupId?: string;
   attachmentUrl?: string;
   attachmentFilename?: string;
+  isEstimate?: boolean;
 }
 
 export type ActionType = 'create' | 'update' | 'delete';

@@ -174,12 +174,17 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                     <div className="flex items-center gap-2 mt-1">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text}`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
                         <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `Pago em ${formatDate(bill.paidDate!)}` : `Vence em ${formatDate(bill.dueDate)}`}</span>
-                        {bill.recurringId && <Repeat className="h-3 w-3 text-muted-foreground" title="Conta recorrente"/>}
-                        {bill.attachmentUrl && <Paperclip className="h-3 w-3 text-muted-foreground" title="Possui anexo"/>}
+                        {/* FIX: Replaced title prop with a wrapping span to provide a tooltip, as the Icon component does not accept a 'title' prop. */}
+                        {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
+                        {/* FIX: Replaced title prop with a wrapping span to provide a tooltip, as the Icon component does not accept a 'title' prop. */}
+                        {bill.attachmentUrl && <span title="Possui anexo"><Paperclip className="h-3 w-3 text-muted-foreground"/></span>}
                     </div>
                 </div>
                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
-                     <p className={`text-base sm:text-lg font-bold font-mono text-right sm:text-left ${statusColors.text}`}>{formatCurrency(bill.amount)}</p>
+                     <p className={`text-base sm:text-lg font-bold font-mono text-right sm:text-left ${statusColors.text}`}>
+                        {bill.isEstimate && <span title="Valor estimado">(est.) </span>}
+                        {formatCurrency(bill.amount)}
+                     </p>
                     <div className="flex gap-2 justify-end">
                         {bill.status !== 'paid' && <button onClick={() => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView })} className="bg-primary text-primary-foreground text-sm font-semibold py-2 px-4 rounded-md">Pagar</button>}
                         <button onClick={() => setView({ name: 'bill-form', billId: bill.id, returnView: currentView })} className="p-2 text-muted-foreground hover:text-primary rounded-md bg-card dark:bg-dark-card"><Edit className="h-4 w-4"/></button>
@@ -268,7 +273,7 @@ export const BillFormPage: React.FC<{
     const toast = useToast();
     const [formState, setFormState] = useState({
         description: '', payeeId: '', categoryId: '', amount: 0, firstDueDate: new Date().toISOString().slice(0, 10),
-        notes: '', paymentType: 'single' as 'single' | 'installments' | 'monthly', installments: 2
+        notes: '', paymentType: 'single' as 'single' | 'installments' | 'monthly', installments: 2, isEstimate: false
     });
     const [amountStr, setAmountStr] = useState('R$ 0,00');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -284,7 +289,7 @@ export const BillFormPage: React.FC<{
                         description: bill.description, payeeId: bill.payeeId, categoryId: bill.categoryId,
                         amount: bill.amount, firstDueDate: bill.dueDate.slice(0, 10), notes: bill.notes || '',
                         paymentType: bill.installmentInfo ? 'installments' : (bill.recurringId ? 'monthly' : 'single'),
-                        installments: bill.installmentInfo?.total || 2,
+                        installments: bill.installmentInfo?.total || 2, isEstimate: bill.isEstimate || false,
                     });
                     setAmountStr(formatCurrencyForInput(bill.amount));
                 }
@@ -306,18 +311,37 @@ export const BillFormPage: React.FC<{
         setIsSubmitting(true);
         try {
             if (isEdit && billId) {
-                await payableBillsApi.update(billId, {
-                    description: formState.description, payeeId: formState.payeeId, categoryId: formState.categoryId,
-                    amount: formState.amount, dueDate: formState.firstDueDate, notes: formState.notes,
-                });
+                const { isEstimate, notes, firstDueDate, paymentType, installments, ...restOfState } = formState;
+
+                const finalNotes = isEstimate 
+                    ? `[ESTIMATE] ${(notes || '').replace(/\[ESTIMATE\]\s*/, '').trim()}`.trim() 
+                    : (notes || '').replace(/\[ESTIMATE\]\s*/, '').trim();
+
+                const payload = {
+                    ...restOfState,
+                    dueDate: firstDueDate,
+                    notes: finalNotes,
+                };
+                
+                await payableBillsApi.update(billId, payload);
             } else {
                 await addPayableBill(formState);
             }
             toast.success(`Conta ${isEdit ? 'atualizada' : 'adicionada'} com sucesso!`);
             setView(returnView);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to save bill:", error);
-            toast.error("Falha ao salvar conta.");
+            let message = "Ocorreu um erro desconhecido.";
+            if (error) {
+                if (typeof error.message === 'string' && error.message.trim() !== '') {
+                    message = error.message;
+                } else if (typeof error.details === 'string' && error.details.trim() !== '') {
+                    message = error.details;
+                } else if (typeof error === 'string') {
+                    message = error;
+                }
+            }
+            toast.error(`Falha ao salvar conta: ${message}`);
             setIsSubmitting(false);
         }
     };
@@ -339,6 +363,19 @@ export const BillFormPage: React.FC<{
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass} /></div>
                     <DateField id="firstDueDate" label={isEdit ? "Vencimento" : "1º Vencimento"} value={formState.firstDueDate} onChange={date => setFormState(f => ({ ...f, firstDueDate: date }))} required />
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                    <input
+                        type="checkbox"
+                        id="isEstimate"
+                        checked={formState.isEstimate}
+                        onChange={e => setFormState(f => ({ ...f, isEstimate: e.target.checked }))}
+                        className="h-4 w-4 rounded border-border dark:border-dark-border text-primary focus:ring-primary"
+                    />
+                    <label htmlFor="isEstimate" className="text-sm font-medium text-muted-foreground">
+                        Este valor é uma estimativa
+                    </label>
                 </div>
 
                 {!isEdit && (
@@ -431,8 +468,19 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
             }
             toast.success("Conta paga com sucesso!");
             setView(returnView);
-        } catch (error) {
-            toast.error("Falha ao pagar conta.");
+        } catch (error: any) {
+            console.error("Failed to pay bill:", error);
+            let message = "Ocorreu um erro desconhecido.";
+            if (error) {
+                if (typeof error.message === 'string' && error.message.trim() !== '') {
+                    message = error.message;
+                } else if (typeof error.details === 'string' && error.details.trim() !== '') {
+                    message = error.details;
+                } else if (typeof error === 'string') {
+                    message = error;
+                }
+            }
+            toast.error(`Falha ao pagar conta: ${message}`);
             setIsSubmitting(false);
         }
     };

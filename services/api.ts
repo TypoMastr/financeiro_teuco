@@ -504,7 +504,18 @@ export const payableBillsApi = {
     getAll: async (): Promise<PayableBill[]> => {
         const { data, error } = await supabase.from('payable_bills').select('*').order('due_date');
         if (error) throw error;
-        return convertObjectKeys(data, toCamelCase).map(updateBillStatusBasedOnDate);
+        const bills = convertObjectKeys(data, toCamelCase) as Omit<PayableBill, 'isEstimate'>[];
+        return bills.map(bill => {
+            const notes = bill.notes || '';
+            const isEstimate = notes.includes('[ESTIMATE]');
+            const cleanedNotes = notes.replace(/\[ESTIMATE\]\s*/, '').trim();
+            const updatedBill: PayableBill = {
+                ...bill,
+                notes: cleanedNotes,
+                isEstimate: isEstimate,
+            };
+            return updateBillStatusBasedOnDate(updatedBill);
+        });
     },
     add: async(billData: Omit<PayableBill, 'id'>): Promise<PayableBill> => {
         const { data, error } = await supabase.from('payable_bills').insert(convertObjectKeys(billData, toSnakeCase)).select().single();
@@ -537,8 +548,15 @@ export const payableBillsApi = {
     }
 };
 
-export async function addPayableBill(billData: { description: string, payeeId: string, categoryId: string, amount: number, firstDueDate: string, notes: string, paymentType: 'single' | 'installments' | 'monthly', installments?: number }) {
-    const { paymentType, firstDueDate, installments, ...commonData } = billData;
+export async function addPayableBill(billData: { description: string, payeeId: string, categoryId: string, amount: number, firstDueDate: string, notes: string, paymentType: 'single' | 'installments' | 'monthly', installments?: number, isEstimate?: boolean }) {
+    const { paymentType, firstDueDate, installments, isEstimate, notes, ...restOfBillData } = billData;
+    
+    const finalNotes = isEstimate 
+        ? `[ESTIMATE] ${notes || ''}`.trim() 
+        : (notes || '').replace(/\[ESTIMATE\]\s*/, '').trim();
+
+    const commonData = { ...restOfBillData, notes: finalNotes };
+    
     if (paymentType === 'single') {
         await payableBillsApi.add({ ...commonData, dueDate: firstDueDate, status: 'pending' });
     } else if (paymentType === 'installments' && installments && installments > 1) {
