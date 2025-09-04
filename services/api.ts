@@ -23,6 +23,172 @@ const convertObjectKeys = (obj: any, converter: (s: string) => string): any => {
     return obj;
 };
 
+// --- NEW HELPERS FOR DETAILED LOGGING ---
+interface LookupData {
+    accounts: Map<string, string>;
+    categories: Map<string, string>;
+    payees: Map<string, string>;
+    projects: Map<string, string>;
+    tags: Map<string, string>;
+    members: Map<string, string>;
+}
+
+const getLookupData = async (): Promise<LookupData> => {
+    const { data: membersData, error: membersError } = await supabase.from('members').select('id, name');
+    if (membersError) throw membersError;
+    
+    const [accounts, categories, payees, projects, tags] = await Promise.all([
+        accountsApi.getAll(),
+        categoriesApi.getAll(),
+        payeesApi.getAll(),
+        projectsApi.getAll(),
+        tagsApi.getAll(),
+    ]);
+
+    return {
+        accounts: new Map(accounts.map(item => [item.id, item.name])),
+        categories: new Map(categories.map(item => [item.id, item.name])),
+        payees: new Map(payees.map(item => [item.id, item.name])),
+        projects: new Map(projects.map(item => [item.id, item.name])),
+        tags: new Map(tags.map(item => [item.id, item.name])),
+        members: new Map(membersData.map(item => [item.id, item.name])),
+    };
+};
+
+
+const FIELD_LABELS: Record<string, string> = {
+    name: 'Nome',
+    email: 'E-mail',
+    phone: 'Telefone',
+    joinDate: 'Data de Admissão',
+    birthday: 'Aniversário',
+    monthlyFee: 'Mensalidade',
+    activityStatus: 'Status de Atividade',
+    description: 'Descrição',
+    amount: 'Valor',
+    date: 'Data',
+    type: 'Tipo',
+    accountId: 'Conta',
+    categoryId: 'Categoria',
+    payeeId: 'Beneficiário/Pagador',
+    tagIds: 'Tags',
+    projectId: 'Projeto',
+    comments: 'Observações',
+    dueDate: 'Vencimento',
+    status: 'Status',
+    paidDate: 'Data de Pagamento',
+    notes: 'Notas',
+    isEstimate: 'Valor Estimado',
+    initialBalance: 'Saldo Inicial',
+    paymentDate: 'Data do Pagamento',
+    referenceMonth: 'Mês de Referência',
+    memberId: 'Membro'
+};
+
+const formatLogValue = (key: string, value: any, lookupData?: LookupData): string => {
+    if (value === null || value === undefined || value === '') return '"vazio"';
+
+    if (typeof value === 'boolean') {
+        return value ? '"Sim"' : '"Não"';
+    }
+    
+    if (lookupData) {
+        switch (key) {
+            case 'accountId':
+                return `"${lookupData.accounts.get(value) || value}"`;
+            case 'categoryId':
+                return `"${lookupData.categories.get(value) || value}"`;
+            case 'payeeId':
+                return `"${lookupData.payees.get(value) || value}"`;
+            case 'projectId':
+                return `"${lookupData.projects.get(value) || value}"`;
+            case 'memberId':
+                return `"${lookupData.members.get(value) || value}"`;
+            case 'tagIds':
+                if (Array.isArray(value)) {
+                    const names = value.map(id => lookupData.tags.get(id) || id);
+                    return names.length > 0 ? `"${names.join(', ')}"` : '"vazio"';
+                }
+                return `"${String(value)}"`;
+        }
+    }
+
+
+    switch (key) {
+        case 'amount':
+        case 'monthlyFee':
+        case 'initialBalance':
+        case 'paidAmount':
+            return `"${(value as number).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}"`;
+        case 'date':
+        case 'joinDate':
+        case 'dueDate':
+        case 'paidDate':
+        case 'paymentDate':
+        case 'birthday':
+            try {
+                const date = new Date(value.includes('T') ? value : value + 'T12:00:00Z');
+                return `"${date.toLocaleDateString('pt-BR')}"`;
+            } catch (e) {
+                return `"${value}"`;
+            }
+        case 'referenceMonth':
+            try {
+                const [year, month] = String(value).split('-');
+                const date = new Date(Number(year), Number(month) - 1, 2);
+                return `"${date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}"`;
+            } catch (e) {
+                 return `"${value}"`;
+            }
+        default:
+            return `"${String(value)}"`;
+    }
+};
+
+const generateDetailedUpdateMessage = (
+    oldData: any, 
+    newData: any, 
+    entityLabel: string, 
+    name: string,
+    lookupData?: LookupData
+): string => {
+    const changes: string[] = [];
+    const oldDataCamel = convertObjectKeys(oldData, toCamelCase);
+    const newDataCamel = convertObjectKeys(newData, toCamelCase);
+
+    const allKeys = new Set([...Object.keys(oldDataCamel), ...Object.keys(newDataCamel)]);
+
+    const ignoreFields = ['id', 'created_at', 'updated_at', 'transactionId', 'payableBillId', 'recurringId', 'installmentGroupId', 'installmentInfo', 'attachmentUrl', 'attachmentFilename', 'overdueMonthsCount', 'overdueMonths', 'totalDue', 'paymentStatus', 'undoData', 'currentBalance', 'password'];
+
+    for (const key of allKeys) {
+        if (ignoreFields.includes(key)) {
+            continue;
+        }
+
+        const oldValue = oldDataCamel[key];
+        const newValue = newDataCamel[key];
+        
+        if (Array.isArray(oldValue) || Array.isArray(newValue)) {
+            const oldArr = oldValue || [];
+            const newArr = newValue || [];
+            if (oldArr.length !== newArr.length || oldArr.some((item, i) => item !== newArr[i])) {
+                 const fieldLabel = FIELD_LABELS[key] || key;
+                 changes.push(`${fieldLabel} alterado de ${formatLogValue(key, oldValue, lookupData)} para ${formatLogValue(key, newValue, lookupData)}.`);
+            }
+        } else if (String(oldValue) !== String(newValue)) {
+            const fieldLabel = FIELD_LABELS[key] || key;
+            changes.push(`${fieldLabel} alterado de ${formatLogValue(key, oldValue, lookupData)} para ${formatLogValue(key, newValue, lookupData)}.`);
+        }
+    }
+
+    if (changes.length === 0) {
+        return `${entityLabel} "${name}" foi salvo sem alterações nos dados.`;
+    }
+
+    return `${entityLabel} "${name}" atualizado. ${changes.join(' ')}`;
+};
+
+
 // --- LOGGING ---
 const addLogEntry = async (description: string, actionType: ActionType, entityType: EntityType, undoData: any) => {
     const { error } = await supabase.from('logs').insert({ description, action_type: actionType, entity_type: entityType, undo_data: undoData });
@@ -31,15 +197,9 @@ const addLogEntry = async (description: string, actionType: ActionType, entityTy
 
 // --- ATTACHMENT UPLOAD ---
 const uploadAttachment = async (attachmentUrl: string, attachmentFilename: string): Promise<string> => {
-    // A blob URL can only be resolved in the context of the document that created it.
-    // So we must fetch it.
     const response = await fetch(attachmentUrl);
     const blob = await response.blob();
-    
-    // Create a new File object to ensure we have a filename and type.
     const file = new File([blob], attachmentFilename, { type: blob.type });
-
-    // Use a unique path for each file to avoid collisions.
     const filePath = `public/${Date.now()}-${attachmentFilename.replace(/\s/g, '_')}`;
     
     const { error: uploadError } = await supabase.storage.from('attachments').upload(filePath, file);
@@ -55,17 +215,10 @@ const uploadAttachment = async (attachmentUrl: string, attachmentFilename: strin
 
 const cleanTransactionDataForSupabase = (transactionData: any) => {
     const cleanedData = { ...transactionData };
-
-    // Convert empty strings for optional foreign keys to undefined, so they are omitted from the request.
-    // Supabase client handles undefined values by not including them in the payload.
-    // This prevents errors with foreign key constraints on nullable columns.
     if (cleanedData.payeeId === '') cleanedData.payeeId = undefined;
     if (cleanedData.projectId === '') cleanedData.projectId = undefined;
     if (cleanedData.payableBillId === '') cleanedData.payableBillId = undefined;
-    
-    // Also handle empty optional arrays
     if (cleanedData.tagIds && cleanedData.tagIds.length === 0) cleanedData.tagIds = undefined;
-
     return cleanedData;
 };
 
@@ -124,7 +277,7 @@ const createCrudFunctions = <T extends { id: string, name: string }>(tableName: 
         const { data, error } = await supabase.from(tableName).insert(payload).select().single();
         if (error) throw error;
         const newItem = convertObjectKeys(data, toCamelCase);
-        await addLogEntry(`Adicionado ${entityLabel}: ${nameAccessor(newItem)}`, 'create', entityType, { id: newItem.id });
+        await addLogEntry(`Adicionado ${entityLabel}: "${nameAccessor(newItem)}"`, 'create', entityType, { id: newItem.id });
         return newItem;
     },
     update: async (itemId: string, itemData: Partial<Omit<T, 'id'>>): Promise<T> => {
@@ -133,7 +286,9 @@ const createCrudFunctions = <T extends { id: string, name: string }>(tableName: 
         const payload: any = convertObjectKeys(itemData, toSnakeCase);
         const { data, error } = await supabase.from(tableName).update(payload).eq('id', itemId).select().single();
         if (error) throw error;
-        await addLogEntry(`Atualizado ${entityLabel}: ${nameAccessor(convertObjectKeys(data, toCamelCase))}`, 'update', entityType, oldData);
+        const newItem = convertObjectKeys(data, toCamelCase);
+        const description = generateDetailedUpdateMessage(oldData, data, entityLabel, nameAccessor(newItem));
+        await addLogEntry(description, 'update', entityType, oldData);
         return convertObjectKeys(data, toCamelCase);
     },
     remove: async (itemId: string): Promise<void> => {
@@ -141,14 +296,14 @@ const createCrudFunctions = <T extends { id: string, name: string }>(tableName: 
         if (findError) throw findError;
         const { error } = await supabase.from(tableName).delete().eq('id', itemId);
         if (error) throw error;
-        await addLogEntry(`Removido ${entityLabel}: ${nameAccessor(convertObjectKeys(oldData, toCamelCase))}`, 'delete', entityType, oldData);
+        await addLogEntry(`Removido ${entityLabel}: "${nameAccessor(convertObjectKeys(oldData, toCamelCase))}"`, 'delete', entityType, oldData);
     },
 });
 
-export const categoriesApi = createCrudFunctions<Category>('categories', 'category', 'categoria', item => item.name);
-export const tagsApi = createCrudFunctions<Tag>('tags', 'tag', 'tag', item => item.name);
-export const payeesApi = createCrudFunctions<Payee>('payees', 'payee', 'beneficiário', item => item.name);
-export const projectsApi = createCrudFunctions<Project>('projects', 'project', 'projeto', item => item.name);
+export const categoriesApi = createCrudFunctions<Category>('categories', 'category', 'Categoria', item => item.name);
+export const tagsApi = createCrudFunctions<Tag>('tags', 'tag', 'Tag', item => item.name);
+export const payeesApi = createCrudFunctions<Payee>('payees', 'payee', 'Beneficiário', item => item.name);
+export const projectsApi = createCrudFunctions<Project>('projects', 'project', 'Projeto', item => item.name);
 
 export const accountsApi = {
     getAll: async (): Promise<Account[]> => {
@@ -160,7 +315,7 @@ export const accountsApi = {
         const { data, error } = await supabase.from('accounts').insert({ name: itemData.name, initial_balance: itemData.initialBalance }).select().single();
         if (error) throw error;
         const newItem = convertObjectKeys(data, toCamelCase);
-        await addLogEntry(`Adicionada conta: ${newItem.name}`, 'create', 'account', { id: newItem.id });
+        await addLogEntry(`Adicionada conta: "${newItem.name}"`, 'create', 'account', { id: newItem.id });
         return newItem;
     },
     update: async(itemId: string, itemData: Partial<Omit<Account, 'id' | 'currentBalance'>>): Promise<Account> => {
@@ -168,7 +323,8 @@ export const accountsApi = {
         if (findError) throw findError;
         const { data, error } = await supabase.from('accounts').update({ name: itemData.name, initial_balance: itemData.initialBalance }).eq('id', itemId).select().single();
         if (error) throw error;
-        await addLogEntry(`Atualizada conta: ${data.name}`, 'update', 'account', oldData);
+        const description = generateDetailedUpdateMessage(oldData, data, 'Conta', data.name);
+        await addLogEntry(description, 'update', 'account', oldData);
         return convertObjectKeys(data, toCamelCase);
     },
     remove: async(itemId: string): Promise<void> => {
@@ -176,7 +332,7 @@ export const accountsApi = {
         if (findError) throw findError;
         const { error } = await supabase.from('accounts').delete().eq('id', itemId);
         if (error) throw error;
-        await addLogEntry(`Removida conta: ${oldData.name}`, 'delete', 'account', oldData);
+        await addLogEntry(`Removida conta: "${oldData.name}"`, 'delete', 'account', oldData);
     }
 };
 
@@ -210,7 +366,7 @@ export const addMember = async (memberData: Omit<Member, 'id' | 'paymentStatus' 
     const { data, error } = await supabase.from('members').insert(convertObjectKeys(memberData, toSnakeCase)).select().single();
     if (error) throw error;
     const newMember = convertObjectKeys(data, toCamelCase);
-    await addLogEntry(`Adicionado novo membro: ${newMember.name}`, 'create', 'member', { id: newMember.id });
+    await addLogEntry(`Adicionado novo membro: "${newMember.name}"`, 'create', 'member', { id: newMember.id });
     return calculateMemberDetails(newMember, []);
 };
 
@@ -220,7 +376,8 @@ export const updateMember = async (memberId: string, memberData: Partial<Omit<Me
     const { data, error } = await supabase.from('members').update(convertObjectKeys(memberData, toSnakeCase)).eq('id', memberId).select().single();
     if (error) throw error;
     
-    await addLogEntry(`Atualizado membro: ${data.name}`, 'update', 'member', oldData);
+    const description = generateDetailedUpdateMessage(oldData, data, 'Membro', data.name);
+    await addLogEntry(description, 'update', 'member', oldData);
     
     const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
     if (paymentsError) throw paymentsError;
@@ -295,6 +452,8 @@ export const updatePaymentAndTransaction = async (
     const { data: oldTransactionData, error: findTransactionError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
     if (findTransactionError) throw findTransactionError;
 
+    const lookupData = await getLookupData();
+
     const { data: updatedTransaction, error: updateTrxErr } = await supabase.from('transactions').update({
         date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
         account_id: formData.accountId,
@@ -304,17 +463,19 @@ export const updatePaymentAndTransaction = async (
     }).eq('id', transactionId).select().single();
     if (updateTrxErr) throw updateTrxErr;
     
-    await addLogEntry(`Atualizada transação de pagamento: ${updatedTransaction.description}`, 'update', 'transaction', oldTransactionData);
+    const trxDescription = generateDetailedUpdateMessage(oldTransactionData, updatedTransaction, 'Transação de Pagamento', updatedTransaction.description, lookupData);
+    await addLogEntry(trxDescription, 'update', 'transaction', oldTransactionData);
 
-    const { error: updatePayErr } = await supabase.from('payments').update({
+    const { data: updatedPayment, error: updatePayErr } = await supabase.from('payments').update({
         payment_date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
         comments: formData.comments,
         attachment_url: finalAttachmentUrl,
         attachment_filename: formData.attachmentFilename,
-    }).eq('id', paymentId);
+    }).eq('id', paymentId).select().single();
     if (updatePayErr) throw updatePayErr;
 
-    await addLogEntry(`Atualizado pagamento ref. ${oldPaymentData.reference_month}`, 'update', 'payment', oldPaymentData);
+    const payDescription = generateDetailedUpdateMessage(oldPaymentData, updatedPayment, 'Pagamento', `ref. ${oldPaymentData.reference_month}`, lookupData);
+    await addLogEntry(payDescription, 'update', 'payment', oldPaymentData);
 };
 
 
@@ -327,7 +488,7 @@ export const deletePayment = async (paymentId: string): Promise<void> => {
     if (paymentToDelete.transaction_id) {
         const { data: trxToDelete, error: trxFindError } = await supabase.from('transactions').select('*').eq('id', paymentToDelete.transaction_id).single();
         if (!trxFindError && trxToDelete) {
-             await addLogEntry(`Excluída transação de pagamento: ${trxToDelete.description}`, 'delete', 'transaction', trxToDelete);
+             await addLogEntry(`Excluída transação de pagamento: "${trxToDelete.description}"`, 'delete', 'transaction', trxToDelete);
              const { error: trxDeleteError } = await supabase.from('transactions').delete().eq('id', paymentToDelete.transaction_id);
              if(trxDeleteError) throw trxDeleteError;
         }
@@ -346,7 +507,6 @@ export const addIncomeTransactionAndPayment = async (
         finalAttachmentUrl = await uploadAttachment(paymentData.attachmentUrl, paymentData.attachmentFilename);
     }
 
-    // Dynamically find or create "Mensalidades" category ID
     let mensalidadesCategoryId: string;
 
     const { data: existingCategories, error: catError } = await supabase
@@ -364,7 +524,6 @@ export const addIncomeTransactionAndPayment = async (
     if (existingCategories && existingCategories.length > 0) {
         mensalidadesCategoryId = existingCategories[0].id;
     } else {
-        // Category doesn't exist, so create it
         const { data: newCategory, error: createCatError } = await supabase
             .from('categories')
             .insert({ name: 'Mensalidades', type: 'income' })
@@ -379,7 +538,6 @@ export const addIncomeTransactionAndPayment = async (
         await addLogEntry('Criada categoria "Mensalidades" automaticamente', 'create', 'category', { id: newCategory.id });
     }
 
-    // 1. Create Transaction
     const { data: trxData, error: trxError } = await supabase.from('transactions').insert({
         description: transactionData.description,
         amount: transactionData.amount,
@@ -392,9 +550,8 @@ export const addIncomeTransactionAndPayment = async (
         attachment_filename: paymentData.attachmentFilename
     }).select().single();
     if (trxError) throw trxError;
-    await addLogEntry(`Criada transação: ${trxData.description}`, 'create', 'transaction', { id: trxData.id });
+    await addLogEntry(`Criada transação: "${trxData.description}"`, 'create', 'transaction', { id: trxData.id });
 
-    // 2. Create Payment linked to transaction
     const { data: payData, error: payError } = await supabase.from('payments').insert({
         member_id: paymentData.memberId,
         amount: transactionData.amount,
@@ -406,7 +563,7 @@ export const addIncomeTransactionAndPayment = async (
         attachment_filename: paymentData.attachmentFilename
     }).select().single();
     if (payError) throw payError;
-    await addLogEntry(`Criado pagamento para ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
+    await addLogEntry(`Criado pagamento para ref. ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
 };
 
 export const updateTransactionAndPaymentLink = async (
@@ -414,22 +571,25 @@ export const updateTransactionAndPaymentLink = async (
     transactionData: Partial<Transaction>,
     paymentLink: { memberId: string, referenceMonth: string }
 ) => {
-    // 1. Update Transaction
     await transactionsApi.update(transactionId, transactionData);
 
-    // 2. Find and Update Payment
     const { data: oldPay, error: findPayErr } = await supabase.from('payments').select('*').eq('transaction_id', transactionId).single();
-    if(findPayErr) throw findPayErr;
-    await addLogEntry(`Atualizado pagamento ref. ${oldPay.reference_month}`, 'update', 'payment', oldPay);
-    
-    const { error: updatePayErr } = await supabase.from('payments').update({
+    if (findPayErr) throw findPayErr;
+
+    const paymentUpdatePayload = {
         member_id: paymentLink.memberId,
         reference_month: paymentLink.referenceMonth,
         amount: transactionData.amount,
         payment_date: transactionData.date,
         comments: transactionData.comments,
-    }).eq('id', oldPay.id);
-    if(updatePayErr) throw updatePayErr;
+    };
+
+    const { data: updatedPay, error: updatePayErr } = await supabase.from('payments').update(paymentUpdatePayload).eq('id', oldPay.id).select().single();
+    if (updatePayErr) throw updatePayErr;
+
+    const lookupData = await getLookupData();
+    const description = generateDetailedUpdateMessage(oldPay, updatedPay, 'Pagamento', `ref. ${oldPay.reference_month}`, lookupData);
+    await addLogEntry(description, 'update', 'payment', oldPay);
 };
 
 
@@ -471,7 +631,7 @@ export const transactionsApi = {
          }
          const { data, error } = await supabase.from('transactions').insert(convertObjectKeys(finalTransactionData, toSnakeCase)).select().single();
          if (error) throw error;
-         await addLogEntry(`Adicionada transação: ${data.description}`, 'create', 'transaction', { id: data.id });
+         await addLogEntry(`Adicionada transação: "${data.description}"`, 'create', 'transaction', { id: data.id });
          return convertObjectKeys(data, toCamelCase);
     },
     update: async(transactionId: string, transactionData: Partial<Omit<Transaction, 'id'>>): Promise<Transaction> => {
@@ -487,7 +647,10 @@ export const transactionsApi = {
 
         const { data, error } = await supabase.from('transactions').update(convertObjectKeys(finalTransactionData, toSnakeCase)).eq('id', transactionId).select().single();
         if(error) throw error;
-        await addLogEntry(`Atualizada transação: ${data.description}`, 'update', 'transaction', oldData);
+        
+        const lookupData = await getLookupData();
+        const description = generateDetailedUpdateMessage(oldData, data, 'Transação', data.description, lookupData);
+        await addLogEntry(description, 'update', 'transaction', oldData);
         return convertObjectKeys(data, toCamelCase);
     },
     remove: async(transactionId: string): Promise<void> => {
@@ -495,7 +658,7 @@ export const transactionsApi = {
         if (findError) throw findError;
         const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
         if (error) throw error;
-        await addLogEntry(`Removida transação: ${oldData.description}`, 'delete', 'transaction', oldData);
+        await addLogEntry(`Removida transação: "${oldData.description}"`, 'delete', 'transaction', oldData);
     }
 };
 
@@ -520,7 +683,8 @@ export const payableBillsApi = {
     add: async(billData: Omit<PayableBill, 'id'>): Promise<PayableBill> => {
         const { data, error } = await supabase.from('payable_bills').insert(convertObjectKeys(billData, toSnakeCase)).select().single();
         if(error) throw error;
-        await addLogEntry(`Adicionada conta a pagar: ${data.description}`, 'create', 'bill', {id: data.id});
+        const formattedDueDate = new Date(data.due_date + 'T12:00:00Z').toLocaleDateString('pt-BR');
+        await addLogEntry(`Adicionada conta a pagar: "${data.description}" (Venc.: ${formattedDueDate})`, 'create', 'bill', {id: data.id});
         return convertObjectKeys(data, toCamelCase);
     },
     update: async(billId: string, billData: Partial<Omit<PayableBill, 'id'>>): Promise<PayableBill> => {
@@ -528,7 +692,12 @@ export const payableBillsApi = {
         if (findError) throw findError;
         const { data, error } = await supabase.from('payable_bills').update(convertObjectKeys(billData, toSnakeCase)).eq('id', billId).select().single();
         if(error) throw error;
-        await addLogEntry(`Atualizada conta a pagar: ${data.description}`, 'update', 'bill', oldData);
+
+        const lookupData = await getLookupData();
+        const formattedDueDate = new Date(data.due_date + 'T12:00:00Z').toLocaleDateString('pt-BR');
+        const entityName = `${data.description} (Venc.: ${formattedDueDate})`;
+        const description = generateDetailedUpdateMessage(oldData, data, 'Conta a Pagar', entityName, lookupData);
+        await addLogEntry(description, 'update', 'bill', oldData);
         return convertObjectKeys(data, toCamelCase);
     },
     remove: async(billId: string): Promise<void> => {
@@ -536,15 +705,24 @@ export const payableBillsApi = {
         if (findError) throw findError;
         const { error } = await supabase.from('payable_bills').delete().eq('id', billId);
         if (error) throw error;
-        await addLogEntry(`Removida conta a pagar: ${oldData.description}`, 'delete', 'bill', oldData);
+        const formattedDueDate = new Date(oldData.due_date + 'T12:00:00Z').toLocaleDateString('pt-BR');
+        await addLogEntry(`Removida conta a pagar: "${oldData.description}" (Venc.: ${formattedDueDate})`, 'delete', 'bill', oldData);
     },
     deleteInstallmentGroup: async(groupId: string): Promise<void> => {
-        const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('installment_group_id', groupId);
+        const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('installment_group_id', groupId).order('due_date');
         if (findError) throw findError;
+
+        if (!oldData || oldData.length === 0) {
+            console.warn(`Attempted to delete non-existent or empty installment group: ${groupId}`);
+            await addLogEntry(`Tentativa de remoção de grupo de parcelas (ID: ${groupId}) que já estava vazio ou não existe.`, 'delete', 'bill', []);
+            return;
+        }
 
         const { error } = await supabase.from('payable_bills').delete().eq('installment_group_id', groupId);
         if (error) throw error;
-        await addLogEntry(`Removido grupo de parcelas (${oldData.length} contas)`, 'delete', 'bill', oldData);
+        
+        const baseDescription = oldData[0].description.replace(/\s\(\d+\/\d+\)$/, '');
+        await addLogEntry(`Removido grupo de parcelas "${baseDescription}" (${oldData.length} contas)`, 'delete', 'bill', oldData);
     }
 };
 
@@ -636,7 +814,6 @@ export const getRevenueReport = async (startDate: string, endDate: string) => {
     };
 };
 
-// FIX: Added explicit return type `Promise<Transaction[]>` to ensure correct type inference in consuming functions like `getDREData`.
 export const getFinancialReport = async (filters: any): Promise<Transaction[]> => {
     let query = supabase.from('transactions').select('*');
     if (filters.startDate) query = query.gte('date', filters.startDate);
@@ -719,7 +896,7 @@ export const undoLogAction = async (logId: string) => {
     if (logError) throw logError;
 
     const { action_type: actionType, entity_type: entityType, undo_data: undoData } = log;
-    const tableName = `${entityType}s`; // Simple pluralization
+    const tableName = `${entityType}s`;
 
     if (actionType === 'create') {
         const { error } = await supabase.from(tableName).delete().eq('id', undoData.id);
@@ -734,6 +911,5 @@ export const undoLogAction = async (logId: string) => {
         throw new Error('Unknown action type');
     }
 
-    // "soft-delete" the log entry
     await supabase.from('logs').update({ description: `[DESFEITO] ${log.description}` }).eq('id', logId);
 };
