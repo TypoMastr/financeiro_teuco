@@ -614,6 +614,14 @@ export const TransactionFormPage: React.FC<{
                 </div>
 
                 <div>
+                    <label className={labelClass}>{formState.type === 'income' ? 'Pagador' : 'Beneficiário'}</label>
+                    <select value={formState.payeeId} onChange={e => setFormState(f => ({ ...f, payeeId: e.target.value }))} className={inputClass}>
+                        <option value="">Nenhum / Não se aplica</option>
+                        {data.payees.map((p: Payee) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                </div>
+
+                <div>
                     <label className={labelClass}>Anexar Comprovante</label>
                     <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
                     <div className="flex gap-2">
