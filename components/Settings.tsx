@@ -67,7 +67,7 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
 
     // --- New State for Notifications ---
     const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
-    const [isSubscribing, setIsSubscribing] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
     const [currentSubscription, setCurrentSubscription] = useState<PushSubscription | null>(null);
 
     useEffect(() => {
@@ -85,9 +85,8 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         if ('serviceWorker' in navigator && 'PushManager' in window) {
             navigator.serviceWorker.ready.then(reg => {
                 reg.pushManager.getSubscription().then(sub => {
-                    if (sub) {
-                        setCurrentSubscription(sub);
-                    }
+                    setCurrentSubscription(sub);
+                    setNotificationPermission(Notification.permission);
                 });
             });
         }
@@ -134,56 +133,71 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         toast.info("Cadastro de biometria removido.");
     };
     
-    // --- New Handlers for Notifications ---
     const handleSubscribe = async () => {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
             toast.error('Notificações push não são suportadas neste navegador.');
             return;
         }
 
-        setIsSubscribing(true);
+        setIsProcessing(true);
         try {
             const permission = await Notification.requestPermission();
             setNotificationPermission(permission);
 
             if (permission === 'granted') {
                 const reg = await navigator.serviceWorker.ready;
-                let sub = await reg.pushManager.getSubscription();
-
-                if (!sub) {
-                    sub = await reg.pushManager.subscribe({
-                        userVisibleOnly: true,
-                        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-                    });
-                }
+                const sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                });
                 
-                await savePushSubscription(sub);
+                // Update UI optimistically
                 setCurrentSubscription(sub);
-                toast.success('Notificações ativadas com sucesso!');
+
+                try {
+                    await savePushSubscription(sub);
+                    toast.success('Notificações ativadas com sucesso!');
+                } catch (dbError) {
+                    toast.error('Falha ao salvar no servidor. Tente desativar e reativar.');
+                    console.error("Error saving subscription to DB", dbError);
+                }
             } else {
                 toast.info('Permissão para notificações não concedida.');
             }
         } catch (error) {
             console.error('Failed to subscribe to push notifications:', error);
             toast.error('Falha ao ativar notificações.');
+            setCurrentSubscription(null); // Ensure state is clean on failure
         } finally {
-            setIsSubscribing(false);
+            setIsProcessing(false);
         }
     };
     
     const handleUnsubscribe = async () => {
         if (!currentSubscription) return;
-        setIsSubscribing(true);
+        setIsProcessing(true);
         try {
-            await deletePushSubscription(currentSubscription.endpoint);
             await currentSubscription.unsubscribe();
-            setCurrentSubscription(null);
-            toast.info('Notificações desativadas.');
+            setCurrentSubscription(null); // Optimistic UI update
+
+            try {
+                 await deletePushSubscription(currentSubscription.endpoint);
+                 toast.info('Notificações desativadas.');
+            } catch (dbError) {
+                toast.error('Falha ao remover do servidor.');
+                console.error("Error deleting subscription from DB", dbError);
+            }
         } catch (error) {
             console.error('Failed to unsubscribe:', error);
             toast.error('Falha ao desativar notificações.');
+            // Re-sync state on failure
+            navigator.serviceWorker.ready.then(reg => {
+                reg.pushManager.getSubscription().then(sub => {
+                    setCurrentSubscription(sub);
+                });
+            });
         } finally {
-            setIsSubscribing(false);
+            setIsProcessing(false);
         }
     };
 
@@ -235,12 +249,12 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
                              </p>
                          </div>
                          {notificationPermission === 'granted' && currentSubscription ? (
-                            <motion.button whileTap={{scale: 0.95}} onClick={handleUnsubscribe} disabled={isSubscribing} className="text-sm font-semibold bg-destructive text-destructive-foreground py-2 px-4 rounded-md disabled:opacity-50">
-                                {isSubscribing ? 'Aguarde...' : 'Desativar'}
+                            <motion.button whileTap={{scale: 0.95}} onClick={handleUnsubscribe} disabled={isProcessing} className="text-sm font-semibold bg-destructive text-destructive-foreground py-2 px-4 rounded-md disabled:opacity-50">
+                                {isProcessing ? 'Aguarde...' : 'Desativar'}
                             </motion.button>
                          ) : notificationPermission !== 'denied' ? (
-                            <motion.button whileTap={{scale: 0.95}} onClick={handleSubscribe} disabled={isSubscribing} className="text-sm font-semibold bg-primary text-primary-foreground py-2 px-4 rounded-md disabled:opacity-50">
-                                {isSubscribing ? 'Aguarde...' : 'Ativar'}
+                            <motion.button whileTap={{scale: 0.95}} onClick={handleSubscribe} disabled={isProcessing} className="text-sm font-semibold bg-primary text-primary-foreground py-2 px-4 rounded-md disabled:opacity-50">
+                                {isProcessing ? 'Aguarde...' : 'Ativar'}
                             </motion.button>
                          ) : null}
                      </motion.div>
