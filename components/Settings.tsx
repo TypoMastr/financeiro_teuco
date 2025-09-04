@@ -2,10 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, ItemType, Account, Category, Payee, Tag, Project } from '../types';
-import { accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi } from '../services/api';
+import { accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi, urlBase64ToUint8Array, VAPID_PUBLIC_KEY, savePushSubscription, deletePushSubscription } from '../services/api';
 import { PageHeader, SubmitButton } from './common/PageLayout';
 import { useToast } from './Notifications';
-import { Briefcase, Tag as TagIcon, DollarSign, Layers, ChevronRight, User, PlusCircle, Trash, Lock, Fingerprint } from './Icons';
+import { Briefcase, Tag as TagIcon, DollarSign, Layers, ChevronRight, User, PlusCircle, Trash, Lock, Fingerprint, Bell } from './Icons';
 
 // --- Animation Variants ---
 const listContainerVariants: Variants = {
@@ -65,6 +65,11 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
     const [isBiometryAvailable, setIsBiometryAvailable] = useState(false);
     const [isBiometryRegistered, setIsBiometryRegistered] = useState(false);
 
+    // --- New State for Notifications ---
+    const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+    const [isSubscribing, setIsSubscribing] = useState(false);
+    const [currentSubscription, setCurrentSubscription] = useState<PushSubscription | null>(null);
+
     useEffect(() => {
         const checkBiometrySupport = async () => {
             if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -76,6 +81,16 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             }
         };
         checkBiometrySupport();
+        
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.pushManager.getSubscription().then(sub => {
+                    if (sub) {
+                        setCurrentSubscription(sub);
+                    }
+                });
+            });
+        }
     }, []);
     
     const handleRegisterBiometry = async () => {
@@ -118,6 +133,72 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         setIsBiometryRegistered(false);
         toast.info("Cadastro de biometria removido.");
     };
+    
+    // --- New Handlers for Notifications ---
+    const handleSubscribe = async () => {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            toast.error('Notificações push não são suportadas neste navegador.');
+            return;
+        }
+
+        setIsSubscribing(true);
+        try {
+            const permission = await Notification.requestPermission();
+            setNotificationPermission(permission);
+
+            if (permission === 'granted') {
+                const reg = await navigator.serviceWorker.ready;
+                let sub = await reg.pushManager.getSubscription();
+
+                if (!sub) {
+                    sub = await reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                    });
+                }
+                
+                await savePushSubscription(sub);
+                setCurrentSubscription(sub);
+                toast.success('Notificações ativadas com sucesso!');
+            } else {
+                toast.info('Permissão para notificações não concedida.');
+            }
+        } catch (error) {
+            console.error('Failed to subscribe to push notifications:', error);
+            toast.error('Falha ao ativar notificações.');
+        } finally {
+            setIsSubscribing(false);
+        }
+    };
+    
+    const handleUnsubscribe = async () => {
+        if (!currentSubscription) return;
+        setIsSubscribing(true);
+        try {
+            await deletePushSubscription(currentSubscription.endpoint);
+            await currentSubscription.unsubscribe();
+            setCurrentSubscription(null);
+            toast.info('Notificações desativadas.');
+        } catch (error) {
+            console.error('Failed to unsubscribe:', error);
+            toast.error('Falha ao desativar notificações.');
+        } finally {
+            setIsSubscribing(false);
+        }
+    };
+
+    const handleTestNotification = () => {
+        if (!currentSubscription || notificationPermission !== 'granted') {
+            toast.error('É preciso ativar as notificações primeiro.');
+            return;
+        }
+        navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification('Notificação de Teste 🚀', {
+                body: 'Se você está vendo esta mensagem, as notificações estão funcionando!',
+                icon: '/icon512_rounded.png'
+            });
+        });
+    };
 
     return (
         <div className="space-y-6">
@@ -134,6 +215,51 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
                     {settingsItems.map(item => (
                         <SettingCard key={item.type} item={item} onClick={() => setView({ name: 'setting-list', itemType: item.type })} />
                     ))}
+                </motion.div>
+            </div>
+
+            <div>
+                <h3 className="text-xl font-bold mb-3 text-foreground dark:text-dark-foreground">Notificações</h3>
+                 <motion.div 
+                    className="space-y-3"
+                    variants={listContainerVariants}
+                    initial="hidden"
+                    animate="visible"
+                >
+                     <motion.div variants={listItemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4 group">
+                         <div className="p-3 bg-primary/10 rounded-full"><Bell className="h-6 w-6 text-primary"/></div>
+                         <div className="flex-1">
+                             <h3 className="font-bold text-foreground dark:text-dark-foreground">Alertas de Vencimento</h3>
+                             <p className="text-sm text-muted-foreground">
+                                {notificationPermission === 'denied' ? 'Permissão bloqueada no navegador' : currentSubscription ? 'Ativado' : 'Desativado'}
+                             </p>
+                         </div>
+                         {notificationPermission === 'granted' && currentSubscription ? (
+                            <motion.button whileTap={{scale: 0.95}} onClick={handleUnsubscribe} disabled={isSubscribing} className="text-sm font-semibold bg-destructive text-destructive-foreground py-2 px-4 rounded-md disabled:opacity-50">
+                                {isSubscribing ? 'Aguarde...' : 'Desativar'}
+                            </motion.button>
+                         ) : notificationPermission !== 'denied' ? (
+                            <motion.button whileTap={{scale: 0.95}} onClick={handleSubscribe} disabled={isSubscribing} className="text-sm font-semibold bg-primary text-primary-foreground py-2 px-4 rounded-md disabled:opacity-50">
+                                {isSubscribing ? 'Aguarde...' : 'Ativar'}
+                            </motion.button>
+                         ) : null}
+                     </motion.div>
+
+                     {notificationPermission === 'granted' && currentSubscription && (
+                         <motion.div
+                            variants={listItemVariants}
+                            className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center justify-between gap-4 cursor-pointer group"
+                            whileHover={{ y: -4, scale: 1.02, boxShadow: "0 4px 15px rgba(0,0,0,0.05)" }}
+                            transition={{ type: 'spring', stiffness: 250, damping: 15 }}
+                            onClick={handleTestNotification}
+                        >
+                            <div className="flex-1">
+                                <h3 className="font-bold text-foreground dark:text-dark-foreground group-hover:text-primary transition-colors">Testar Notificações</h3>
+                                <p className="text-sm text-muted-foreground">Enviar uma notificação de teste para este dispositivo</p>
+                            </div>
+                             <ChevronRight className="h-5 w-5 text-muted-foreground ml-auto" />
+                        </motion.div>
+                     )}
                 </motion.div>
             </div>
             
