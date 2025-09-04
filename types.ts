@@ -1,3 +1,4 @@
+
 export enum PaymentStatus {
   EmDia = 'Em Dia',
   Atrasado = 'Atrasado',
@@ -31,6 +32,7 @@ export type ViewName =
   | 'financial-report-form'
   | 'future-income-view'
   | 'setting-item-form'
+  | 'setting-list'
   | 'bill-form'
   | 'pay-bill-form'
   | 'delete-bill-confirmation'

@@ -263,7 +263,7 @@ const Financial: React.FC<{ viewState: ViewState, setView: (view: ViewState) => 
     const currentView: ViewState = { name: 'financial', componentState: { activeTab } };
 
     return (
-        <motion.div className="space-y-6" initial={{opacity:0}} animate={{opacity:1}}>
+        <div className="space-y-6">
             <h2 className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Financeiro</h2>
             
             <motion.button onClick={() => setView({ name: 'transaction-form', returnView: currentView })} className="sm:hidden w-full text-center bg-primary text-primary-foreground font-semibold py-2.5 px-4 rounded-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-btn dark:shadow-dark-btn" whileTap={{scale:0.98}}>
@@ -369,7 +369,7 @@ const Financial: React.FC<{ viewState: ViewState, setView: (view: ViewState) => 
                     <motion.button onClick={() => setView({ name: 'financial-report-form', returnView: currentView })} className="sm:hidden w-full text-center bg-card dark:bg-dark-card text-primary font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border-2 border-primary/50 hover:border-primary hover:bg-primary/5" whileTap={{scale:0.98}}><FileSearch className="h-4 w-4" /> Relatórios</motion.button>
                 </motion.div>
             </motion.div>
-        </motion.div>
+        </div>
     );
 };
 
@@ -559,7 +559,7 @@ export const TransactionFormPage: React.FC<{
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
             <PageHeader title={isEdit ? "Editar Transação" : "Nova Transação"} onBack={() => setView(returnView)} />
 
-             <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
+             <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
                 <div className="flex bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
                     <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'expense' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'expense' ? 'bg-destructive text-destructive-foreground shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Despesa</button>
                     <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'income' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'income' ? 'bg-success text-white shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Receita</button>
@@ -637,7 +637,7 @@ export const TransactionFormPage: React.FC<{
                         <img src={formState.attachmentUrl} alt="Preview" className="mt-2 h-20 w-20 object-cover rounded-md"/>
                     )}
                 </div>
-            </motion.div>
+            </div>
             <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
         </form>
     );
@@ -683,7 +683,7 @@ export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view:
     return (
         <div className="space-y-6 max-w-lg mx-auto">
             <PageHeader title="Gerar Relatório" onBack={() => setView(returnView)} />
-            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
+            <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <DateField id="startDate" label="Data Início" value={filters.startDate} onChange={date => setFilters(f=>({...f, startDate: date}))}/>
                     <DateField id="endDate" label="Data Fim" value={filters.endDate} onChange={date => setFilters(f=>({...f, endDate: date}))}/>
@@ -712,7 +712,7 @@ export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view:
                     ))}
                   </div>
                 </div>
-            </motion.div>
+            </div>
             <div className="flex justify-center"><button onClick={handleGenerate} className="bg-primary text-primary-foreground font-semibold py-2.5 px-6 rounded-md hover:opacity-90 transition-opacity">Gerar Relatório</button></div>
         </div>
     );
@@ -733,7 +733,7 @@ export const FutureIncomePage: React.FC<{ viewState: ViewState, setView: (view: 
     return (
         <div className="space-y-6 max-w-lg mx-auto">
             <PageHeader title="Previsão de Receitas" onBack={() => setView(returnView)} />
-            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="bg-card dark:bg-dark-card p-4 sm:p-6 rounded-lg border border-border dark:border-dark-border">
+            <div className="bg-card dark:bg-dark-card p-4 sm:p-6 rounded-lg border border-border dark:border-dark-border">
              {loading ? <div className="h-40 rounded-lg bg-muted animate-pulse"></div> : (
                 <div className="space-y-2">
                     {transactions.length > 0 ? transactions.map(trx => (
@@ -747,7 +747,7 @@ export const FutureIncomePage: React.FC<{ viewState: ViewState, setView: (view: 
                     )) : <p className="text-center text-sm text-muted-foreground p-4">Nenhuma receita futura encontrada.</p>}
                 </div>
             )}
-            </motion.div>
+            </div>
         </div>
     );
 };

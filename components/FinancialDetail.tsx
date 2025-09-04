@@ -109,7 +109,7 @@ const FinancialDetail: React.FC<{
     };
 
     return (
-        <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit="exit">
+        <div className="space-y-6">
             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                  <motion.button
                     onClick={() => setView({ name: 'financial' })}
@@ -173,7 +173,7 @@ const FinancialDetail: React.FC<{
                     </AnimatePresence>
                 </motion.div>
             )}
-        </motion.div>
+        </div>
     );
 };
 

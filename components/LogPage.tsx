@@ -138,12 +138,7 @@ export const LogPage: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
 
     return (
         <>
-            <motion.div 
-                className="space-y-6"
-                variants={containerVariants}
-                initial="hidden"
-                animate="visible"
-            >
+            <div className="space-y-6">
                 <motion.div variants={itemVariants} className="flex items-center gap-3">
                     <div className="p-2 bg-primary/10 rounded-lg"><History className="h-6 w-6 text-primary"/></div>
                     <h2 className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Histórico</h2>
@@ -190,7 +185,7 @@ export const LogPage: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                         )}
                     </div>
                 )}
-            </motion.div>
+            </div>
             
             {logToUndo && <ConfirmationModal 
                 isOpen={!!logToUndo}

@@ -112,13 +112,7 @@ export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
   };
 
   return (
-    <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-        className="space-y-6"
-    >
+    <div className="space-y-6">
       <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Central de Relatórios</motion.h2>
       <motion.div variants={containerVariants} className="space-y-6">
         <ReportCard
@@ -210,6 +204,6 @@ export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
             </>
         </ReportCard>
       </motion.div>
-    </motion.div>
+    </div>
   );
 };

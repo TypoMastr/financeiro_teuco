@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { motion, Variants } from 'framer-motion';
 import { ReportData, ViewState, Member, Transaction, Category, Payee, Account } from '../types';
@@ -229,13 +230,7 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ report, setView }) =>
   };
 
   return (
-    <motion.div
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-      className="space-y-6"
-    >
+    <div className="space-y-6">
       <motion.div variants={itemVariants} className="w-full flex flex-col sm:flex-row justify-center sm:justify-between gap-4 no-print">
         <motion.button
           onClick={() => setView({ name: 'reports' })}
@@ -265,7 +260,7 @@ const PrintableReport: React.FC<PrintableReportProps> = ({ report, setView }) =>
         {type === 'financial' && <FinancialReport data={data} />}
         {type === 'dre' && <DREReport data={data} />}
       </motion.div>
-    </motion.div>
+    </div>
   );
 };
 

@@ -219,13 +219,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
   
 
   return (
-    <motion.div 
-        className="space-y-6"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-    >
+    <div className="space-y-6">
         <motion.div variants={itemVariants}>
             <h2 className="text-3xl md:text-4xl font-bold font-display text-foreground dark:text-dark-foreground text-center sm:text-left hidden sm:block">Mensalidades</h2>
         </motion.div>
@@ -333,6 +327,6 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                 </AnimatePresence>
             )}
         </motion.div>
-    </motion.div>
+    </div>
   );
 };

@@ -134,7 +134,7 @@ export const TransactionHistory: React.FC<{
     const currentView: ViewState = { name: 'transaction-history', accountId: selectedAccountId, componentState: { filters } };
 
     return (
-        <motion.div className="space-y-6" variants={containerVariants} initial="hidden" animate="visible" exit="exit">
+        <div className="space-y-6">
             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <motion.button
                     onClick={() => setView({ name: 'financial' })}
@@ -211,6 +211,6 @@ export const TransactionHistory: React.FC<{
                     </AnimatePresence>
                 </motion.div>
             )}
-        </motion.div>
+        </div>
     );
 };

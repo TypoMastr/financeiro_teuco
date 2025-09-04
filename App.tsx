@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Members } from './components/Members';
@@ -6,7 +7,7 @@ import MemberProfile, { PaymentFormPage } from './components/MemberProfile';
 import MemberForm from './components/MemberForm';
 import PrintableReport from './components/PrintableReport';
 import Financial, { TransactionFormPage, ReportFiltersPage, FutureIncomePage } from './components/Financial';
-import { Settings, SettingsItemFormPage } from './components/Settings';
+import { Settings, SettingsItemFormPage, SettingsListPage } from './components/Settings';
 import FinancialDetail from './components/FinancialDetail';
 import { TransactionHistory } from './components/TransactionHistory';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -79,6 +80,8 @@ const App: React.FC = () => {
         return <FutureIncomePage viewState={view} setView={setView} />;
       case 'setting-item-form':
         return <SettingsItemFormPage viewState={view} setView={setView} />;
+      case 'setting-list':
+        return <SettingsListPage viewState={view} setView={setView} />;
       case 'bill-form':
         return <BillFormPage viewState={view} setView={setView} />;
       case 'pay-bill-form':

@@ -110,7 +110,7 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
   }
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="visible" exit="exit" className="space-y-6 md:space-y-8">
+    <div className="space-y-6 md:space-y-8">
       <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</motion.h2>
 
       <motion.div variants={containerVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
@@ -179,6 +179,6 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
         </motion.div>
 
       </motion.div>
-    </motion.div>
+    </div>
   );
 };

@@ -339,7 +339,7 @@ export const BillFormPage: React.FC<{ viewState: ViewState, setView: (view: View
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
             <PageHeader title={isEdit ? "Editar Conta" : "Nova Conta"} onBack={() => setView(returnView)} />
             
-            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                 <div><label className={labelClass}>Descrição</label><input type="text" value={formData.description} onChange={e => setFormData(f => ({ ...f, description: e.target.value }))} required className={inputClass} /></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div><label className={labelClass}>Beneficiário</label><select value={formData.payeeId} onChange={e => setFormData(f => ({ ...f, payeeId: e.target.value }))} required className={inputClass}><option value="">Selecione...</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
@@ -369,7 +369,7 @@ export const BillFormPage: React.FC<{ viewState: ViewState, setView: (view: View
                     )}
                 </div>
                 <div><label className={labelClass}>Notas</label><textarea value={formData.notes} onChange={e => setFormData(f => ({ ...f, notes: e.target.value }))} rows={2} className={inputClass}></textarea></div>
-            </motion.div>
+            </div>
             <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
         </form>
     );
@@ -485,7 +485,7 @@ export const PayBillPage: React.FC<{ viewState: ViewState, setView: (view: ViewS
         <div className="space-y-6 max-w-lg mx-auto">
              <PageHeader title={`Pagar: ${bill.description}`} onBack={() => setView(returnView)} />
              
-            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="bg-card dark:bg-dark-card p-4 sm:p-6 rounded-lg border border-border dark:border-dark-border">
+            <div className="bg-card dark:bg-dark-card p-4 sm:p-6 rounded-lg border border-border dark:border-dark-border">
                 <div className="border-b border-border dark:border-dark-border mb-4">
                     <div className="flex">
                         <button onClick={() => setActiveTab('create')} className={`flex-1 text-center py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'create' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Novo Pagamento</button>
@@ -529,7 +529,7 @@ export const PayBillPage: React.FC<{ viewState: ViewState, setView: (view: ViewS
                         </div>
                     </div>
                 )}
-            </motion.div>
+            </div>
             <div className="flex justify-center gap-3">
                 <button type="button" onClick={handleSubmit} disabled={isSubmitting} className="bg-primary text-primary-foreground font-semibold text-sm py-2.5 px-6 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50">{isSubmitting ? 'Processando...' : (activeTab === 'create' ? 'Confirmar Pagamento' : 'Vincular Despesa')}</button>
             </div>
@@ -575,7 +575,7 @@ export const DeleteBillConfirmationPage: React.FC<{ viewState: ViewState, setVie
         <div className="space-y-6 max-w-lg mx-auto">
             <PageHeader title="Confirmar Exclusão" onBack={() => setView(returnView)} />
 
-            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4 text-center">
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4 text-center">
                 <p className="text-foreground dark:text-dark-foreground">Você tem certeza que deseja excluir a conta "<strong>{bill.description}</strong>"?</p>
                 <p className="text-sm text-muted-foreground mt-2">Esta ação não pode ser desfeita.</p>
                 {isInstallment && (
@@ -586,7 +586,7 @@ export const DeleteBillConfirmationPage: React.FC<{ viewState: ViewState, setVie
                         </label>
                     </div>
                 )}
-            </motion.div>
+            </div>
             <div className="flex justify-center gap-3">
                 <button type="button" onClick={() => setView(returnView)} className="bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold text-sm py-2 px-5 rounded-full hover:bg-muted dark:hover:bg-dark-muted transition-colors">Cancelar</button>
                 <button type="button" onClick={handleConfirm} className="bg-destructive text-destructive-foreground font-semibold text-sm py-2 px-5 rounded-full hover:bg-destructive/90 transition-opacity">Excluir</button>

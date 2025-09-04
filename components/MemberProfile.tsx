@@ -33,18 +33,6 @@ const InfoItem: React.FC<{ label: string, value?: string, icon: React.ReactNode 
     </motion.div>
 );
 
-const pageContainerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.07 },
-  },
-  exit: {
-    opacity: 0,
-    transition: { staggerChildren: 0.05, staggerDirection: -1 }
-  }
-};
-
 const itemVariants: Variants = {
   hidden: { y: 20, opacity: 0 },
   visible: { y: 0, opacity: 1, transition: { type: 'spring', stiffness: 100 } },
@@ -161,13 +149,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
     };
     
     return (
-        <motion.div 
-          className="space-y-8"
-          variants={pageContainerVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-        >
+        <div className="space-y-8">
             <motion.div 
               variants={itemVariants}
               className="w-full flex justify-start"
@@ -391,7 +373,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                     </motion.div>
                  </motion.div>
             </motion.div>
-        </motion.div>
+        </div>
     );
 };
 
@@ -529,12 +511,7 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
              <PageHeader title="Registrar Pagamento" onBack={() => setView(returnView)} />
             
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4"
-            >
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                  <div className="p-4 bg-primary/10 rounded-lg text-center">
                     <p className="text-sm font-medium text-primary">Valor para {monthName}:</p>
                     <p className="text-3xl font-bold text-primary">{formatCurrency(member.monthlyFee)}</p>
@@ -573,7 +550,7 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
                         </button>
                     </div>
                  </div>
-            </motion.div>
+            </div>
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

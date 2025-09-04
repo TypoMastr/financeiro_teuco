@@ -18,12 +18,7 @@ export const AttachmentViewer: React.FC<AttachmentViewProps> = ({ viewState, set
     }
 
     return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-6"
-        >
+        <div className="space-y-6">
             <div className="flex justify-start">
                 <motion.button
                     onClick={() => setView(returnView)}
@@ -41,6 +36,6 @@ export const AttachmentViewer: React.FC<AttachmentViewProps> = ({ viewState, set
                     className="w-full h-auto object-contain rounded-md max-h-[80vh]"
                 />
             </div>
-        </motion.div>
+        </div>
     );
 };

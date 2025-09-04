@@ -156,13 +156,9 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
     const goBack = () => isEditMode ? setView({ name: 'member-profile', id: memberId }) : setView({ name: 'members' });
 
     return (
-        <motion.form 
+        <form 
             onSubmit={handleSubmit} 
             className="space-y-6 max-w-3xl mx-auto"
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
         >
             <PageHeader
               title={isEditMode ? 'Editar Membro' : 'Novo Membro'}
@@ -257,7 +253,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                     </SubmitButton>
                 </motion.div>
             </motion.div>
-        </motion.form>
+        </form>
     );
 };
 

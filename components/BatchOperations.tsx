@@ -84,7 +84,7 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto">
             <PageHeader title="Transações em Lote" onBack={() => setView(returnView)} />
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                 <div>
                     <label className={labelClass}>Conta de Destino</label>
                     <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} required className={inputClass}>
@@ -101,7 +101,7 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
                         placeholder="Cole aqui. Formato por linha:&#10;dd/mm/aaaa; Descrição da transação; 150,00; expense; Nome da Categoria&#10;dd/mm/aaaa; Outra descrição; 50,25; income; Outra Categoria"
                     />
                 </div>
-            </motion.div>
+            </div>
             <div className="flex justify-center">
                 <SubmitButton isSubmitting={isSubmitting} text="Processar Lote" />
             </div>
@@ -147,7 +147,7 @@ export const OfxImportFormPage: React.FC<{ viewState: ViewState, setView: (view:
     return (
         <div className="space-y-6 max-w-2xl mx-auto">
             <PageHeader title="Importar Extrato OFX" onBack={() => setView(returnView)} />
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                  <div>
                     <label className={labelClass}>Conta de Destino</label>
                     <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} required className={inputClass}>
@@ -164,7 +164,7 @@ export const OfxImportFormPage: React.FC<{ viewState: ViewState, setView: (view:
                      </button>
                 </div>
                 <p className="text-center text-sm text-muted-foreground p-4">A funcionalidade de importação e conciliação de extratos OFX está em desenvolvimento.</p>
-            </motion.div>
+            </div>
             <div className="flex justify-center">
                 <SubmitButton isSubmitting={isSubmitting} text="Importar" />
             </div>
