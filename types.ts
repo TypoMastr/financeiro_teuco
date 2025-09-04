@@ -127,7 +127,12 @@ export interface Stats {
   onTime: number;
   overdue: number;
   monthlyRevenue: number;
+  monthlyExpenses: number;
+  currentBalance: number;
+  projectedIncome: number;
+  projectedExpenses: number;
 }
+
 
 export interface ReportData {
   type: 'overdue' | 'revenue' | 'financial' | 'dre';
