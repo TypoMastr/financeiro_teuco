@@ -91,8 +91,9 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             }
         } catch (err) {
             console.error("Error updating notification status:", err);
+            // In case of error, try to read the permission state again and clear subscription
+            setNotificationPermission(Notification.permission);
             setCurrentSubscription(null);
-            setNotificationPermission(Notification.permission); // Fallback read
         }
     }, []);
 
@@ -172,31 +173,36 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         if (isProcessing) return;
     
         setIsProcessing(true);
+        let sub: PushSubscription | null = null;
         try {
             const permission = await Notification.requestPermission();
             setNotificationPermission(permission);
     
-            if (permission === 'granted') {
-                const reg = await navigator.serviceWorker.ready;
-                const sub = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-                });
-                
-                setCurrentSubscription(sub);
-                toast.success('Notificações ativadas com sucesso!');
-        
-                savePushSubscription(sub).catch(dbError => {
-                    toast.error('Falha ao sincronizar com o servidor. Tente reativar.');
-                    console.error("Error saving subscription to DB", dbError);
-                });
-            } else {
+            if (permission !== 'granted') {
                 toast.info('Permissão para notificações não concedida.');
+                setIsProcessing(false); // Exit early
+                return;
             }
+    
+            const reg = await navigator.serviceWorker.ready;
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+            });
+            
+            await savePushSubscription(sub);
+            
+            setCurrentSubscription(sub);
+            toast.success('Notificações ativadas com sucesso!');
+    
         } catch (error) {
             console.error('Failed to subscribe to push notifications:', error);
-            toast.error('Falha ao ativar notificações.');
-            await updateNotificationStatus(); // Re-sync on error
+            toast.error('Falha ao ativar notificações. Verifique a conexão e tente novamente.');
+    
+            if (sub) {
+                await sub.unsubscribe().catch(e => console.error("Error during cleanup unsubscribe:", e));
+            }
+            await updateNotificationStatus(); 
         } finally {
             setIsProcessing(false);
         }
@@ -208,24 +214,22 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         setIsProcessing(true);
         try {
             const subEndpoint = currentSubscription.endpoint;
+            
+            await deletePushSubscription(subEndpoint);
+    
             const unsubscribed = await currentSubscription.unsubscribe();
-    
-            if (unsubscribed) {
-                setCurrentSubscription(null); // Optimistic update
-                toast.info('Notificações desativadas.');
-    
-                deletePushSubscription(subEndpoint).catch(dbError => {
-                    toast.error('Falha ao sincronizar com o servidor.');
-                    console.error("Error deleting subscription from DB", dbError);
-                });
-            } else {
-                toast.error('Falha ao desativar. Tente novamente.');
+            if (!unsubscribed) {
+                throw new Error('O navegador não conseguiu cancelar a inscrição.');
             }
+    
+            toast.info('Notificações desativadas.');
+            setCurrentSubscription(null);
+    
         } catch (error) {
             console.error('Failed to unsubscribe:', error);
-            toast.error('Falha ao desativar notificações.');
+            toast.error('Falha ao desativar notificações. Tente novamente.');
         } finally {
-            await updateNotificationStatus(); // Always re-sync
+            await updateNotificationStatus();
             setIsProcessing(false);
         }
     };
@@ -245,7 +249,7 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
     
     const statusText = useMemo(() => {
         if (notificationPermission === 'denied') {
-            return 'Permissão bloqueada no navegador';
+            return 'Bloqueado. Altere nas configurações do navegador.';
         }
         if (currentSubscription) {
             return 'Ativado';
