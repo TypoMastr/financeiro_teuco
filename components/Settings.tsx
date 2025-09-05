@@ -70,6 +70,17 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
     const [isProcessing, setIsProcessing] = useState(false);
     const [currentSubscription, setCurrentSubscription] = useState<PushSubscription | null>(null);
 
+    const updateNotificationStatus = useCallback(() => {
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.pushManager.getSubscription().then(sub => {
+                    setCurrentSubscription(sub);
+                    setNotificationPermission(Notification.permission);
+                }).catch(err => console.error("Error getting subscription:", err));
+            }).catch(err => console.error("Service worker not ready:", err));
+        }
+    }, []);
+
     useEffect(() => {
         const checkBiometrySupport = async () => {
             if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -82,15 +93,20 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         };
         checkBiometrySupport();
         
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-            navigator.serviceWorker.ready.then(reg => {
-                reg.pushManager.getSubscription().then(sub => {
-                    setCurrentSubscription(sub);
-                    setNotificationPermission(Notification.permission);
-                });
-            });
-        }
-    }, []);
+        updateNotificationStatus();
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                updateNotificationStatus();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [updateNotificationStatus]);
     
     const handleRegisterBiometry = async () => {
         try {
@@ -141,14 +157,12 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         if (isProcessing) return;
     
         setIsProcessing(true);
-    
         try {
             const permission = await Notification.requestPermission();
             setNotificationPermission(permission);
     
             if (permission !== 'granted') {
                 toast.info('Permissão para notificações não concedida.');
-                setIsProcessing(false);
                 return;
             }
     
@@ -159,19 +173,17 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             });
             
             setCurrentSubscription(sub);
-            setIsProcessing(false);
             toast.success('Notificações ativadas com sucesso!');
     
-            // Perform DB save in the background
             savePushSubscription(sub).catch(dbError => {
                 toast.error('Falha ao sincronizar com o servidor. Tente reativar.');
                 console.error("Error saving subscription to DB", dbError);
             });
-    
         } catch (error) {
             console.error('Failed to subscribe to push notifications:', error);
             toast.error('Falha ao ativar notificações.');
             setCurrentSubscription(null);
+        } finally {
             setIsProcessing(false);
         }
     };
@@ -180,32 +192,26 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         if (!currentSubscription || isProcessing) return;
     
         setIsProcessing(true);
-    
         try {
             const subEndpoint = currentSubscription.endpoint;
             const unsubscribed = await currentSubscription.unsubscribe();
     
             if (unsubscribed) {
                 setCurrentSubscription(null);
-                setIsProcessing(false);
                 toast.info('Notificações desativadas.');
     
-                // Perform DB delete in the background
                 deletePushSubscription(subEndpoint).catch(dbError => {
                     toast.error('Falha ao sincronizar com o servidor.');
                     console.error("Error deleting subscription from DB", dbError);
                 });
             } else {
                 toast.error('Falha ao desativar. Tente novamente.');
-                setIsProcessing(false);
             }
         } catch (error) {
             console.error('Failed to unsubscribe:', error);
             toast.error('Falha ao desativar notificações.');
-            
-            navigator.serviceWorker.ready.then(reg => {
-                reg.pushManager.getSubscription().then(setCurrentSubscription);
-            });
+            updateNotificationStatus();
+        } finally {
             setIsProcessing(false);
         }
     };
