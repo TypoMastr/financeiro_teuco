@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 // FIX: Import types from the corrected types.ts file.
@@ -6,7 +5,8 @@ import { ViewState, ItemType, Account, Category, Payee, Tag, Project } from '../
 import { accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi, urlBase64ToUint8Array, VAPID_PUBLIC_KEY, savePushSubscription, deletePushSubscription } from '../services/api';
 import { PageHeader, SubmitButton } from './common/PageLayout';
 import { useToast } from './Notifications';
-import { Briefcase, Tag as TagIcon, DollarSign, Layers, ChevronRight, User, PlusCircle, Trash, Lock, Fingerprint, Bell } from './Icons';
+// FIX: Import the 'Edit' icon from './Icons' to resolve the 'Cannot find name' error.
+import { Briefcase, Tag as TagIcon, DollarSign, Layers, ChevronRight, User, PlusCircle, Trash, Lock, Fingerprint, Bell, Edit } from './Icons';
 
 // --- Animation Variants ---
 const listContainerVariants: Variants = {
@@ -173,19 +173,24 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         if (isProcessing) return;
     
         setIsProcessing(true);
-        let sub: PushSubscription | null = null;
         try {
             const permission = await Notification.requestPermission();
             setNotificationPermission(permission);
     
             if (permission !== 'granted') {
                 toast.info('Permissão para notificações não concedida.');
-                setIsProcessing(false); // Exit early
-                return;
+                return; // Finally will still run
             }
     
             const reg = await navigator.serviceWorker.ready;
-            sub = await reg.pushManager.subscribe({
+            
+            // Unsubscribe any existing subscription first to ensure a clean state
+            const existingSub = await reg.pushManager.getSubscription();
+            if (existingSub) {
+                await existingSub.unsubscribe();
+            }
+
+            const sub = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
             });
@@ -196,13 +201,21 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             toast.success('Notificações ativadas com sucesso!');
     
         } catch (error) {
-            console.error('Failed to subscribe to push notifications:', error);
-            toast.error('Falha ao ativar notificações. Verifique a conexão e tente novamente.');
+            console.error('Falha ao ativar notificações:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            toast.error(`Erro ao ativar: ${errorMessage}`);
     
-            if (sub) {
-                await sub.unsubscribe().catch(e => console.error("Error during cleanup unsubscribe:", e));
+            // Cleanup: try to find and unsubscribe any new subscription that might have been created
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                if (sub) {
+                    await sub.unsubscribe();
+                }
+            } catch (cleanupError) {
+                console.error("Erro durante a limpeza da inscrição:", cleanupError);
             }
-            await updateNotificationStatus(); 
+            setCurrentSubscription(null);
         } finally {
             setIsProcessing(false);
         }
@@ -213,24 +226,30 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
     
         setIsProcessing(true);
         try {
-            const subEndpoint = currentSubscription.endpoint;
-            
-            await deletePushSubscription(subEndpoint);
-    
+            // Unsubscribe from browser first. This is the critical part for the user.
             const unsubscribed = await currentSubscription.unsubscribe();
             if (!unsubscribed) {
-                throw new Error('O navegador não conseguiu cancelar a inscrição.');
+                console.warn('Browser unsubscribe() returned false, might already be invalid.');
             }
-    
+
+            // After browser unsubscribe, update the server. We catch potential errors here
+            // so that a server failure doesn't block the UI from updating.
+            await deletePushSubscription(currentSubscription.endpoint).catch(serverError => {
+                console.error('Falha ao remover inscrição do servidor, mas o navegador foi desinscrito:', serverError);
+                // Don't re-throw. The user is effectively unsubscribed from receiving messages.
+            });
+            
             toast.info('Notificações desativadas.');
             setCurrentSubscription(null);
     
         } catch (error) {
-            console.error('Failed to unsubscribe:', error);
-            toast.error('Falha ao desativar notificações. Tente novamente.');
+            console.error('Falha ao desativar notificações:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            toast.error(`Erro ao desativar: ${errorMessage}`);
         } finally {
-            await updateNotificationStatus();
             setIsProcessing(false);
+            // Do a final check to ensure state is synchronized.
+            await updateNotificationStatus();
         }
     };
 
@@ -280,319 +299,239 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             </div>
 
             <div>
-                <h3 className="text-xl font-bold mb-3 text-foreground dark:text-dark-foreground">Notificações</h3>
+                 <h3 className="text-xl font-bold mb-3 text-foreground dark:text-dark-foreground">Notificações</h3>
                  <motion.div 
-                    className="space-y-3"
-                    variants={listContainerVariants}
-                    initial="hidden"
-                    animate="visible"
-                >
-                     <motion.div variants={listItemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4 group">
-                         <div className="p-3 bg-primary/10 rounded-full"><Bell className="h-6 w-6 text-primary"/></div>
-                         <div className="flex-1">
-                             <h3 className="font-bold text-foreground dark:text-dark-foreground">Alertas de Vencimento</h3>
-                             <p className="text-sm text-muted-foreground">
-                                {statusText}
-                             </p>
-                         </div>
-                         {notificationPermission === 'granted' && currentSubscription ? (
-                            <motion.button whileTap={{scale: 0.95}} onClick={handleUnsubscribe} disabled={isProcessing} className="text-sm font-semibold bg-destructive text-destructive-foreground py-2 px-4 rounded-md disabled:opacity-50">
+                    variants={listItemVariants}
+                    className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4"
+                 >
+                    <div className="p-3 bg-primary/10 rounded-full"><Bell className="h-6 w-6 text-primary" /></div>
+                    <div className="flex-1">
+                        <h4 className="font-bold text-foreground dark:text-dark-foreground">Alertas de Vencimento</h4>
+                        <p className="text-sm text-muted-foreground">{statusText}</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                        {currentSubscription ? (
+                            <button
+                                onClick={handleUnsubscribe}
+                                disabled={isProcessing}
+                                className="bg-destructive text-destructive-foreground font-semibold py-2 px-4 rounded-md min-w-[100px] text-center"
+                            >
                                 {isProcessing ? 'Aguarde...' : 'Desativar'}
-                            </motion.button>
-                         ) : notificationPermission !== 'denied' ? (
-                            <motion.button whileTap={{scale: 0.95}} onClick={handleSubscribe} disabled={isProcessing} className="text-sm font-semibold bg-primary text-primary-foreground py-2 px-4 rounded-md disabled:opacity-50">
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleSubscribe}
+                                disabled={isProcessing || notificationPermission === 'denied'}
+                                className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-md min-w-[100px] text-center disabled:opacity-50"
+                            >
                                 {isProcessing ? 'Aguarde...' : 'Ativar'}
-                            </motion.button>
-                         ) : null}
-                     </motion.div>
-
-                     {notificationPermission === 'granted' && currentSubscription && (
-                         <motion.div
-                            variants={listItemVariants}
-                            className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center justify-between gap-4 cursor-pointer group"
-                            whileHover={{ y: -4, scale: 1.02, boxShadow: "0 4px 15px rgba(0,0,0,0.05)" }}
-                            transition={{ type: 'spring', stiffness: 250, damping: 15 }}
-                            onClick={handleTestNotification}
-                        >
-                            <div className="flex-1">
-                                <h3 className="font-bold text-foreground dark:text-dark-foreground group-hover:text-primary transition-colors">Testar Notificações</h3>
-                                <p className="text-sm text-muted-foreground">Enviar uma notificação de teste para este dispositivo</p>
-                            </div>
-                             <ChevronRight className="h-5 w-5 text-muted-foreground ml-auto" />
-                        </motion.div>
-                     )}
-                </motion.div>
+                            </button>
+                        )}
+                    </div>
+                 </motion.div>
+                 {notificationPermission === 'granted' && currentSubscription && (
+                     <motion.div variants={listItemVariants} className="mt-3">
+                        <button onClick={handleTestNotification} className="w-full text-center text-primary font-semibold py-2.5 px-4 rounded-md transition-colors bg-primary/10 hover:bg-primary/20 text-sm">
+                            Enviar notificação de teste
+                        </button>
+                    </motion.div>
+                 )}
             </div>
-            
-             <div>
+
+            <div>
                 <h3 className="text-xl font-bold mb-3 text-foreground dark:text-dark-foreground">Segurança</h3>
-                <motion.div 
-                    className="space-y-3"
-                    variants={listContainerVariants}
-                    initial="hidden"
-                    animate="visible"
-                >
+                <motion.div className="space-y-3" variants={listContainerVariants} initial="hidden" animate="visible">
                     {isBiometryAvailable && (
-                         <motion.div variants={listItemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4 group">
-                             <div className="p-3 bg-primary/10 rounded-full"><Fingerprint className="h-6 w-6 text-primary"/></div>
+                        <motion.div variants={listItemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4">
+                             <div className="p-3 bg-primary/10 rounded-full"><Fingerprint className="h-6 w-6 text-primary" /></div>
                              <div className="flex-1">
-                                 <h3 className="font-bold text-foreground dark:text-dark-foreground">Acesso Biométrico</h3>
-                                 <p className="text-sm text-muted-foreground">{isBiometryRegistered ? 'Ativado' : 'Desativado'}</p>
+                                <h4 className="font-bold text-foreground dark:text-dark-foreground">Acesso Biométrico</h4>
+                                <p className="text-sm text-muted-foreground">{isBiometryRegistered ? 'Ativado' : 'Desativado'}</p>
                              </div>
-                             {isBiometryRegistered ? (
-                                <motion.button whileTap={{scale: 0.95}} onClick={handleRemoveBiometry} className="text-sm font-semibold bg-destructive text-destructive-foreground py-2 px-4 rounded-md">Desativar</motion.button>
-                             ) : (
-                                <motion.button whileTap={{scale: 0.95}} onClick={handleRegisterBiometry} className="text-sm font-semibold bg-primary text-primary-foreground py-2 px-4 rounded-md">Ativar</motion.button>
-                             )}
-                         </motion.div>
+                             <div className="flex-shrink-0">
+                                {isBiometryRegistered ? (
+                                    <button onClick={handleRemoveBiometry} className="bg-destructive text-destructive-foreground font-semibold py-2 px-4 rounded-md">Desativar</button>
+                                ) : (
+                                    <button onClick={handleRegisterBiometry} className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-md">Ativar</button>
+                                )}
+                             </div>
+                        </motion.div>
                     )}
-                    <motion.div
-                        onClick={onLock}
-                        className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4 cursor-pointer group"
-                        variants={listItemVariants}
-                        whileHover={{ y: -4, scale: 1.02, boxShadow: "0 4px 15px rgba(0,0,0,0.05)" }}
-                        transition={{ type: 'spring', stiffness: 250, damping: 15 }}
-                    >
-                        <div className="p-3 bg-primary/10 rounded-full"><Lock className="h-6 w-6 text-primary"/></div>
-                        <div className="flex-1">
-                            <h3 className="font-bold text-foreground dark:text-dark-foreground group-hover:text-primary transition-colors">Bloquear App</h3>
+                     <motion.div variants={listItemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4">
+                         <div className="p-3 bg-primary/10 rounded-full"><Lock className="h-6 w-6 text-primary" /></div>
+                         <div className="flex-1">
+                            <h4 className="font-bold text-foreground dark:text-dark-foreground">Bloquear App</h4>
                             <p className="text-sm text-muted-foreground">Requerer senha para reabrir</p>
-                        </div>
+                         </div>
+                         <div className="flex-shrink-0">
+                            <button onClick={onLock} className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-md">Bloquear Agora</button>
+                         </div>
                     </motion.div>
                 </motion.div>
             </div>
+
         </div>
     );
 };
 
 
-// --- Item List Page ---
+// --- List and Form pages for settings items (Account, Category, etc.) ---
 
-const apiMap: Record<ItemType, any> = {
-    account: accountsApi,
-    category: categoriesApi,
-    payee: payeesApi,
-    tag: tagsApi,
-    project: projectsApi,
-};
-
-const labelsMap: Record<ItemType, { singular: string, plural: string }> = {
-    account: { singular: 'Conta', plural: 'Contas' },
-    category: { singular: 'Categoria', plural: 'Categorias' },
-    payee: { singular: 'Beneficiário', plural: 'Beneficiários' },
-    tag: { singular: 'Tag', plural: 'Tags' },
-    project: { singular: 'Projeto', plural: 'Projetos' },
-};
+type Item = Account | Category | Payee | Tag | Project;
 
 export const SettingsListPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { itemType, returnView = { name: 'settings' } } = viewState as { name: 'setting-list', itemType: ItemType, returnView?: ViewState };
-    const [items, setItems] = useState<any[]>([]);
+    // FIX: Correctly cast viewState to the specific discriminated union type to access its properties.
+    const { itemType, returnView = { name: 'settings' } } = viewState as { name: 'setting-list', itemType: ItemType, returnView: ViewState };
+    const [items, setItems] = useState<Item[]>([]);
     const [loading, setLoading] = useState(true);
     const toast = useToast();
-    const api = apiMap[itemType];
-    const labels = labelsMap[itemType];
-    
-    useEffect(() => {
-        let isCancelled = false;
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const data = await api.getAll();
-                if (!isCancelled) {
-                    setItems(data);
-                }
-            } catch (error) {
-                if (!isCancelled) {
-                    toast.error(`Erro ao carregar ${labels.plural.toLowerCase()}.`);
-                }
-            } finally {
-                if (!isCancelled) {
-                    setLoading(false);
-                }
-            }
-        };
-        fetchData();
-        return () => {
-            isCancelled = true;
-        };
-    }, [api, labels, toast]);
 
-    const handleDelete = async (itemId: string) => {
-        if (window.confirm('Tem certeza que deseja excluir este item? Esta ação não pode ser desfeita.')) {
+    const apiMap = useMemo(() => ({
+        account: { api: accountsApi, label: 'Conta' },
+        category: { api: categoriesApi, label: 'Categoria' },
+        payee: { api: payeesApi, label: 'Beneficiário' },
+        tag: { api: tagsApi, label: 'Tag' },
+        project: { api: projectsApi, label: 'Projeto' },
+    }), []);
+    
+    const { api, label } = apiMap[itemType];
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const data = await (api as any).getAll();
+            setItems(data);
+        } catch (error) {
+            toast.error(`Erro ao carregar ${label.toLowerCase()}s.`);
+        } finally {
+            setLoading(false);
+        }
+    }, [api, label, toast]);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    const handleDelete = async (itemId: string, itemName: string) => {
+        if (window.confirm(`Tem certeza que deseja excluir "${itemName}"?`)) {
             try {
-                await api.remove(itemId);
-                toast.success('Item excluído com sucesso.');
-                setItems(prevItems => prevItems.filter(item => item.id !== itemId));
+                await (api as any).remove(itemId);
+                toast.success(`${label} removid${label.endsWith('a') ? 'a' : 'o'} com sucesso.`);
+                fetchData();
             } catch (error: any) {
-                if(error.message.includes('foreign key constraint')) {
-                     toast.error('Não é possível excluir. Este item está sendo usado em transações.');
-                } else {
-                     toast.error('Erro ao excluir item.');
-                }
+                toast.error(error.message.includes('foreign key constraint') 
+                    ? `Não é possível excluir. Est${label.endsWith('a') ? 'a' : 'e'} ${label.toLowerCase()} está em uso.` 
+                    : `Erro ao remover ${label.toLowerCase()}.`);
             }
         }
     };
     
-    const currentView: ViewState = { name: 'setting-list', itemType };
+    const currentView: ViewState = { name: 'setting-list', itemType, returnView };
 
     return (
-        <div className="space-y-6">
-            <PageHeader
-                title={labels.plural}
-                onBack={() => setView(returnView)}
+        <div className="space-y-6 max-w-2xl mx-auto">
+            <PageHeader 
+                title={`${label}s`} 
+                onBack={() => setView(returnView)} 
                 action={
-                    <button onClick={() => setView({ name: 'setting-item-form', itemType, returnView: currentView })} className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-full flex items-center gap-2 active:scale-95 transition-transform">
-                        <PlusCircle className="h-5 w-5"/> <span className="hidden sm:inline">Adicionar</span>
-                    </button>
+                    <motion.button 
+                        onClick={() => setView({ name: 'setting-item-form', itemType, returnView: currentView })}
+                        className="bg-primary text-primary-foreground font-semibold p-2.5 rounded-full"
+                        whileTap={{ scale: 0.95 }}
+                    >
+                        <PlusCircle className="h-5 w-5"/>
+                    </motion.button>
                 }
             />
-            <AnimatePresence mode="wait">
-                {loading ? (
-                    <motion.div
-                        key="loader"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="flex justify-center items-center h-64"
-                    >
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        key="list"
-                        variants={listContainerVariants}
-                        initial="hidden"
-                        animate="visible"
-                        className="space-y-3"
-                    >
-                        {items.length > 0 ? items.map(item => (
-                            <motion.div
-                                key={item.id}
-                                variants={listItemVariants}
-                                className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center justify-between"
-                            >
-                                <div
-                                    className="flex-1 cursor-pointer group"
-                                    onClick={() => setView({ name: 'setting-item-form', itemType, itemId: item.id, returnView: currentView })}
-                                >
-                                    <p className="font-semibold text-foreground dark:text-dark-foreground group-hover:text-primary transition-colors">{item.name}</p>
-                                    {itemType === 'account' && <p className="text-sm text-muted-foreground">Saldo inicial: {item.initialBalance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>}
-                                    {itemType === 'category' && <p className="text-sm text-muted-foreground capitalize">{item.type === 'income' ? 'Receita' : (item.type === 'expense' ? 'Despesa' : 'Ambos')}</p>}
-                                </div>
-                                <motion.button 
-                                    onClick={() => handleDelete(item.id)} 
-                                    className="p-2 text-muted-foreground hover:text-danger rounded-full transition-colors"
-                                    whileTap={{ scale: 0.9 }}
-                                    whileHover={{ backgroundColor: 'rgba(217, 83, 79, 0.1)' }}
-                                >
-                                    <Trash className="h-5 w-5"/>
-                                </motion.button>
-                            </motion.div>
-                        )) : (
-                            <motion.div
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="text-center py-20 text-muted-foreground"
-                            >
-                                <p className="font-semibold text-lg">Nenhum item encontrado.</p>
-                                <p>Adicione um novo item para começar.</p>
-                            </motion.div>
-                        )}
-                    </motion.div>
-                )}
-            </AnimatePresence>
+
+            {loading ? (
+                 <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>
+            ) : items.length > 0 ? (
+                <motion.div className="space-y-3" variants={listContainerVariants} initial="hidden" animate="visible">
+                    {items.map(item => (
+                        <motion.div key={item.id} variants={listItemVariants} className="bg-card dark:bg-dark-card p-3 rounded-lg border border-border dark:border-dark-border flex items-center gap-4">
+                            <div className="flex-1 font-semibold">{item.name}</div>
+                            <button onClick={() => setView({ name: 'setting-item-form', itemType, itemId: item.id, returnView: currentView })} className="p-2 text-muted-foreground hover:text-primary rounded-md"><Edit className="h-4 w-4"/></button>
+                            <button onClick={() => handleDelete(item.id, item.name)} className="p-2 text-muted-foreground hover:text-danger rounded-md"><Trash className="h-4 w-4"/></button>
+                        </motion.div>
+                    ))}
+                </motion.div>
+            ) : (
+                <div className="text-center py-20 text-muted-foreground">
+                    <p>Nenhum{label.endsWith('a') ? 'a' : ''} {label.toLowerCase()} cadastrad{label.endsWith('a') ? 'a' : 'o'}.</p>
+                </div>
+            )}
         </div>
     );
 };
 
-// --- Item Form Page ---
-
 export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { itemType, itemId, returnView } = viewState as { name: 'setting-item-form', itemType: ItemType, itemId?: string, returnView?: ViewState };
+    // FIX: Correctly cast viewState to the specific discriminated union type to access its properties.
+    const { itemType, itemId, returnView } = viewState as { name: 'setting-item-form', itemType: ItemType, itemId?: string, returnView: ViewState };
     const isEdit = !!itemId;
-    const api = apiMap[itemType];
-    const labels = labelsMap[itemType];
-    
-    const [formData, setFormData] = useState<any>({ name: '' });
     const [loading, setLoading] = useState(isEdit);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [formState, setFormState] = useState<any>({ name: '' });
     const toast = useToast();
-    
+
+    const apiMap = useMemo(() => ({
+        account: { api: accountsApi, label: 'Conta' },
+        category: { api: categoriesApi, label: 'Categoria' },
+        payee: { api: payeesApi, label: 'Beneficiário' },
+        tag: { api: tagsApi, label: 'Tag' },
+        project: { api: projectsApi, label: 'Projeto' },
+    }), []);
+    const { api, label } = apiMap[itemType];
+
     useEffect(() => {
-        let isCancelled = false;
-        const fetchItem = async () => {
-            try {
-                const allItems: any[] = await api.getAll();
-                if (!isCancelled) {
-                    const item = allItems.find(i => i.id === itemId);
-                    if (item) {
-                        setFormData(item);
-                    }
-                }
-            } catch (error) {
-                 if (!isCancelled) {
-                    toast.error(`Erro ao carregar os dados para edição.`);
-                }
-            } finally {
-                if (!isCancelled) {
-                    setLoading(false);
-                }
-            }
-        };
-
-        if (isEdit) {
-            fetchItem();
-        } else {
-            setLoading(false);
+        if (isEdit && itemId) {
+            (api as any).getAll().then((items: Item[]) => {
+                const item = items.find(i => i.id === itemId);
+                if (item) setFormState(item);
+                setLoading(false);
+            });
         }
-
-        return () => {
-            isCancelled = true;
-        };
-    }, [isEdit, itemId, api, toast]);
+    }, [isEdit, itemId, api]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const { id, ...dataToSave } = formData;
             if (isEdit && itemId) {
-                await api.update(itemId, dataToSave);
+                await (api as any).update(itemId, formState);
             } else {
-                await api.add(dataToSave);
+                await (api as any).add(formState);
             }
-            toast.success(`${labels.singular} ${isEdit ? 'atualizado(a)' : 'adicionado(a)'} com sucesso!`);
-            setView(returnView || { name: 'settings' });
+            toast.success(`${label} salv${label.endsWith('a') ? 'a' : 'o'} com sucesso!`);
+            setView(returnView);
         } catch (error) {
-            toast.error(`Erro ao salvar ${labels.singular.toLowerCase()}.`);
+            toast.error(`Erro ao salvar ${label.toLowerCase()}.`);
             setIsSubmitting(false);
         }
     };
     
-    if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+    if(loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
-    const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
-            <PageHeader title={`${isEdit ? 'Editar' : 'Novo(a)'} ${labels.singular}`} onBack={() => setView(returnView || { name: 'settings' })} />
+            <PageHeader title={`${isEdit ? 'Editar' : 'Nov' + (label.endsWith('a') ? 'a' : 'o')} ${label}`} onBack={() => setView(returnView)} />
             <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
                 <div>
-                    <label htmlFor="name" className={labelClass}>Nome</label>
-                    <input type="text" id="name" value={formData.name} onChange={e => setFormData(f => ({ ...f, name: e.target.value }))} required className={inputClass} />
+                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Nome</label>
+                    <input type="text" value={formState.name} onChange={e => setFormState(f => ({...f, name: e.target.value}))} required className={inputClass}/>
                 </div>
                 {itemType === 'account' && (
                     <div>
-                         <label htmlFor="initialBalance" className={labelClass}>Saldo Inicial</label>
-                         <input type="number" step="0.01" id="initialBalance" value={formData.initialBalance || 0} onChange={e => setFormData(f => ({ ...f, initialBalance: parseFloat(e.target.value) }))} required className={inputClass} />
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Saldo Inicial</label>
+                        <input type="number" step="0.01" value={formState.initialBalance || 0} onChange={e => setFormState(f => ({...f, initialBalance: parseFloat(e.target.value)}))} required className={inputClass}/>
                     </div>
                 )}
-                {itemType === 'category' && (
+                 {itemType === 'category' && (
                     <div>
-                        <label htmlFor="type" className={labelClass}>Tipo</label>
-                        <select id="type" value={formData.type || 'expense'} onChange={e => setFormData(f => ({...f, type: e.target.value}))} required className={inputClass}>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Tipo</label>
+                        <select value={formState.type || 'expense'} onChange={e => setFormState(f => ({...f, type: e.target.value}))} className={inputClass}>
                             <option value="expense">Despesa</option>
                             <option value="income">Receita</option>
                             <option value="both">Ambos</option>
@@ -600,9 +539,7 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
                     </div>
                 )}
             </div>
-            <div className="flex justify-center">
-                <SubmitButton isSubmitting={isSubmitting} text="Salvar" />
-            </div>
+            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
         </form>
     );
 };
