@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, ItemType, Account, Category, Payee, Tag, Project } from '../types';
-import { accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi, urlBase64ToUint8Array, VAPID_PUBLIC_KEY, savePushSubscription, deletePushSubscription } from '../services/api';
+import { accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi } from '../services/api';
 import { PageHeader, SubmitButton } from './common/PageLayout';
 import { useToast } from './Notifications';
 // FIX: Import the 'Edit' icon from './Icons' to resolve the 'Cannot find name' error.
-import { Briefcase, Tag as TagIcon, DollarSign, Layers, ChevronRight, User, PlusCircle, Trash, Lock, Fingerprint, Bell, Edit } from './Icons';
+import { Briefcase, Tag as TagIcon, DollarSign, Layers, ChevronRight, User, PlusCircle, Trash, Lock, Fingerprint, Edit } from './Icons';
 
 // --- Animation Variants ---
 const listContainerVariants: Variants = {
@@ -66,37 +66,6 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
     const [isBiometryAvailable, setIsBiometryAvailable] = useState(false);
     const [isBiometryRegistered, setIsBiometryRegistered] = useState(false);
 
-    // --- State for Notifications ---
-    const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [currentSubscription, setCurrentSubscription] = useState<PushSubscription | null>(null);
-
-    const updateNotificationStatus = useCallback(async () => {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            setNotificationPermission('denied');
-            setCurrentSubscription(null);
-            return;
-        }
-
-        try {
-            const permission = Notification.permission;
-            setNotificationPermission(permission);
-
-            if (permission === 'granted') {
-                const reg = await navigator.serviceWorker.ready;
-                const sub = await reg.pushManager.getSubscription();
-                setCurrentSubscription(sub);
-            } else {
-                setCurrentSubscription(null);
-            }
-        } catch (err) {
-            console.error("Error updating notification status:", err);
-            // In case of error, try to read the permission state again and clear subscription
-            setNotificationPermission(Notification.permission);
-            setCurrentSubscription(null);
-        }
-    }, []);
-
     useEffect(() => {
         const checkBiometrySupport = async () => {
             if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -108,21 +77,7 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             }
         };
         checkBiometrySupport();
-        
-        updateNotificationStatus();
-
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                updateNotificationStatus();
-            }
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-        };
-    }, [updateNotificationStatus]);
+    }, []);
     
     const handleRegisterBiometry = async () => {
         try {
@@ -165,121 +120,6 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         toast.info("Cadastro de biometria removido.");
     };
     
-    const handleSubscribe = async () => {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            toast.error('Notificações push não são suportadas neste navegador.');
-            return;
-        }
-        if (isProcessing) return;
-    
-        setIsProcessing(true);
-        try {
-            const permission = await Notification.requestPermission();
-            setNotificationPermission(permission);
-    
-            if (permission !== 'granted') {
-                toast.info('Permissão para notificações não concedida.');
-                return; // Finally will still run
-            }
-    
-            const reg = await navigator.serviceWorker.ready;
-            
-            // Unsubscribe any existing subscription first to ensure a clean state
-            const existingSub = await reg.pushManager.getSubscription();
-            if (existingSub) {
-                await existingSub.unsubscribe();
-            }
-
-            const sub = await reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-            
-            await savePushSubscription(sub);
-            
-            setCurrentSubscription(sub);
-            toast.success('Notificações ativadas com sucesso!');
-    
-        } catch (error) {
-            console.error('Falha ao ativar notificações:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            toast.error(`Erro ao ativar: ${errorMessage}`);
-    
-            // Cleanup: try to find and unsubscribe any new subscription that might have been created
-            try {
-                const reg = await navigator.serviceWorker.ready;
-                const sub = await reg.pushManager.getSubscription();
-                if (sub) {
-                    await sub.unsubscribe();
-                }
-            } catch (cleanupError) {
-                console.error("Erro durante a limpeza da inscrição:", cleanupError);
-            }
-            setCurrentSubscription(null);
-        } finally {
-            setIsProcessing(false);
-        }
-    };
-    
-    const handleUnsubscribe = async () => {
-        if (!currentSubscription || isProcessing) return;
-    
-        setIsProcessing(true);
-        try {
-            // Unsubscribe from browser first. This is the critical part for the user.
-            const unsubscribed = await currentSubscription.unsubscribe();
-            if (!unsubscribed) {
-                console.warn('Browser unsubscribe() returned false, might already be invalid.');
-            }
-
-            // After browser unsubscribe, update the server. We catch potential errors here
-            // so that a server failure doesn't block the UI from updating.
-            await deletePushSubscription(currentSubscription.endpoint).catch(serverError => {
-                console.error('Falha ao remover inscrição do servidor, mas o navegador foi desinscrito:', serverError);
-                // Don't re-throw. The user is effectively unsubscribed from receiving messages.
-            });
-            
-            toast.info('Notificações desativadas.');
-            setCurrentSubscription(null);
-    
-        } catch (error) {
-            console.error('Falha ao desativar notificações:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            toast.error(`Erro ao desativar: ${errorMessage}`);
-        } finally {
-            setIsProcessing(false);
-            // Do a final check to ensure state is synchronized.
-            await updateNotificationStatus();
-        }
-    };
-
-    const handleTestNotification = () => {
-        if (!currentSubscription || notificationPermission !== 'granted') {
-            toast.error('É preciso ativar as notificações primeiro.');
-            return;
-        }
-        navigator.serviceWorker.ready.then(registration => {
-            registration.showNotification('Notificação de Teste 🚀', {
-                body: 'Se você está vendo esta mensagem, as notificações estão funcionando!',
-                icon: '/icon512_rounded.png'
-            });
-        });
-    };
-    
-    const statusText = useMemo(() => {
-        if (notificationPermission === 'denied') {
-            return 'Bloqueado. Altere nas configurações do navegador.';
-        }
-        if (currentSubscription) {
-            return 'Ativado';
-        }
-        if (notificationPermission === 'granted') {
-            return 'Permitido, pronto para ativar';
-        }
-        return 'Desativado';
-    }, [notificationPermission, currentSubscription]);
-
-
     return (
         <div className="space-y-6">
             <h2 className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Ajustes</h2>
@@ -296,46 +136,6 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
                         <SettingCard key={item.type} item={item} onClick={() => setView({ name: 'setting-list', itemType: item.type })} />
                     ))}
                 </motion.div>
-            </div>
-
-            <div>
-                 <h3 className="text-xl font-bold mb-3 text-foreground dark:text-dark-foreground">Notificações</h3>
-                 <motion.div 
-                    variants={listItemVariants}
-                    className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4"
-                 >
-                    <div className="p-3 bg-primary/10 rounded-full"><Bell className="h-6 w-6 text-primary" /></div>
-                    <div className="flex-1">
-                        <h4 className="font-bold text-foreground dark:text-dark-foreground">Alertas de Vencimento</h4>
-                        <p className="text-sm text-muted-foreground">{statusText}</p>
-                    </div>
-                    <div className="flex-shrink-0">
-                        {currentSubscription ? (
-                            <button
-                                onClick={handleUnsubscribe}
-                                disabled={isProcessing}
-                                className="bg-destructive text-destructive-foreground font-semibold py-2 px-4 rounded-md min-w-[100px] text-center"
-                            >
-                                {isProcessing ? 'Aguarde...' : 'Desativar'}
-                            </button>
-                        ) : (
-                            <button
-                                onClick={handleSubscribe}
-                                disabled={isProcessing || notificationPermission === 'denied'}
-                                className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-md min-w-[100px] text-center disabled:opacity-50"
-                            >
-                                {isProcessing ? 'Aguarde...' : 'Ativar'}
-                            </button>
-                        )}
-                    </div>
-                 </motion.div>
-                 {notificationPermission === 'granted' && currentSubscription && (
-                     <motion.div variants={listItemVariants} className="mt-3">
-                        <button onClick={handleTestNotification} className="w-full text-center text-primary font-semibold py-2.5 px-4 rounded-md transition-colors bg-primary/10 hover:bg-primary/20 text-sm">
-                            Enviar notificação de teste
-                        </button>
-                    </motion.div>
-                 )}
             </div>
 
             <div>

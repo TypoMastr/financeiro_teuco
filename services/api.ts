@@ -6,53 +6,6 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// VAPID public key for push notifications
-export const VAPID_PUBLIC_KEY = 'BDI3ENTuOo8S-A3D8s_R-Tl52KFn1L5a-Cr_4o_uAPjQAVs2aD03A4V1Z_r_H3-d2vjQ_YjJjgB2qA2-2_m2Bf8';
-
-export const urlBase64ToUint8Array = (base64String: string) => {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding)
-        .replace(/\-/g, '+')
-        .replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-};
-
-export const savePushSubscription = async (subscription: PushSubscription) => {
-    const subscriptionJson = subscription.toJSON();
-    const { data, error } = await supabase
-        .from('push_subscriptions')
-        .upsert({
-            endpoint: subscription.endpoint,
-            p256dh: subscriptionJson.keys?.p256dh,
-            auth: subscriptionJson.keys?.auth
-        }, { onConflict: 'endpoint' });
-
-    if (error) {
-        console.error('Error saving push subscription:', error);
-        throw error;
-    }
-    return data;
-};
-
-export const deletePushSubscription = async (endpoint: string) => {
-    const { data, error } = await supabase
-        .from('push_subscriptions')
-        .delete()
-        .eq('endpoint', endpoint);
-
-    if (error) {
-        console.error('Error deleting push subscription:', error);
-        throw error;
-    }
-    return data;
-};
-
-
 // --- UTILS ---
 const toCamelCase = (s: string) => s.replace(/(_\w)/g, k => k[1].toUpperCase());
 const toSnakeCase = (s: string) => s.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
