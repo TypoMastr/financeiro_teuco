@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, ItemType, Account, Category, Payee, Tag, Project } from '../types';
@@ -65,19 +66,33 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
     const [isBiometryAvailable, setIsBiometryAvailable] = useState(false);
     const [isBiometryRegistered, setIsBiometryRegistered] = useState(false);
 
-    // --- New State for Notifications ---
-    const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+    // --- State for Notifications ---
+    const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
     const [isProcessing, setIsProcessing] = useState(false);
     const [currentSubscription, setCurrentSubscription] = useState<PushSubscription | null>(null);
 
-    const updateNotificationStatus = useCallback(() => {
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-            navigator.serviceWorker.ready.then(reg => {
-                reg.pushManager.getSubscription().then(sub => {
-                    setCurrentSubscription(sub);
-                    setNotificationPermission(Notification.permission);
-                }).catch(err => console.error("Error getting subscription:", err));
-            }).catch(err => console.error("Service worker not ready:", err));
+    const updateNotificationStatus = useCallback(async () => {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            setNotificationPermission('denied');
+            setCurrentSubscription(null);
+            return;
+        }
+
+        try {
+            const permission = Notification.permission;
+            setNotificationPermission(permission);
+
+            if (permission === 'granted') {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                setCurrentSubscription(sub);
+            } else {
+                setCurrentSubscription(null);
+            }
+        } catch (err) {
+            console.error("Error updating notification status:", err);
+            setCurrentSubscription(null);
+            setNotificationPermission(Notification.permission); // Fallback read
         }
     }, []);
 
@@ -161,28 +176,27 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             const permission = await Notification.requestPermission();
             setNotificationPermission(permission);
     
-            if (permission !== 'granted') {
+            if (permission === 'granted') {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                });
+                
+                setCurrentSubscription(sub);
+                toast.success('Notificações ativadas com sucesso!');
+        
+                savePushSubscription(sub).catch(dbError => {
+                    toast.error('Falha ao sincronizar com o servidor. Tente reativar.');
+                    console.error("Error saving subscription to DB", dbError);
+                });
+            } else {
                 toast.info('Permissão para notificações não concedida.');
-                return;
             }
-    
-            const reg = await navigator.serviceWorker.ready;
-            const sub = await reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-            
-            setCurrentSubscription(sub);
-            toast.success('Notificações ativadas com sucesso!');
-    
-            savePushSubscription(sub).catch(dbError => {
-                toast.error('Falha ao sincronizar com o servidor. Tente reativar.');
-                console.error("Error saving subscription to DB", dbError);
-            });
         } catch (error) {
             console.error('Failed to subscribe to push notifications:', error);
             toast.error('Falha ao ativar notificações.');
-            setCurrentSubscription(null);
+            await updateNotificationStatus(); // Re-sync on error
         } finally {
             setIsProcessing(false);
         }
@@ -197,7 +211,7 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             const unsubscribed = await currentSubscription.unsubscribe();
     
             if (unsubscribed) {
-                setCurrentSubscription(null);
+                setCurrentSubscription(null); // Optimistic update
                 toast.info('Notificações desativadas.');
     
                 deletePushSubscription(subEndpoint).catch(dbError => {
@@ -210,8 +224,8 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
         } catch (error) {
             console.error('Failed to unsubscribe:', error);
             toast.error('Falha ao desativar notificações.');
-            updateNotificationStatus();
         } finally {
+            await updateNotificationStatus(); // Always re-sync
             setIsProcessing(false);
         }
     };
@@ -228,6 +242,20 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
             });
         });
     };
+    
+    const statusText = useMemo(() => {
+        if (notificationPermission === 'denied') {
+            return 'Permissão bloqueada no navegador';
+        }
+        if (currentSubscription) {
+            return 'Ativado';
+        }
+        if (notificationPermission === 'granted') {
+            return 'Permitido, pronto para ativar';
+        }
+        return 'Desativado';
+    }, [notificationPermission, currentSubscription]);
+
 
     return (
         <div className="space-y-6">
@@ -260,7 +288,7 @@ export const Settings: React.FC<{ setView: (view: ViewState) => void, onLock: ()
                          <div className="flex-1">
                              <h3 className="font-bold text-foreground dark:text-dark-foreground">Alertas de Vencimento</h3>
                              <p className="text-sm text-muted-foreground">
-                                {notificationPermission === 'denied' ? 'Permissão bloqueada no navegador' : currentSubscription ? 'Ativado' : 'Desativado'}
+                                {statusText}
                              </p>
                          </div>
                          {notificationPermission === 'granted' && currentSubscription ? (
