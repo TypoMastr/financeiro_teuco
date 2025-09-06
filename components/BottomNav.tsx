@@ -20,7 +20,7 @@ const mainNavItems = {
     ]
   },
   gestao: {
-    label: 'Gestão',
+    label: 'Ferramentas',
     icon: Dashboard,
     items: [
       { view: 'overview', label: 'Visão Geral', icon: Dashboard },

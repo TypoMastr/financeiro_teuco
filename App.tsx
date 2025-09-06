@@ -150,7 +150,7 @@ const App: React.FC = () => {
               setView={setView} 
             />
             
-            <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto pb-28 lg:pb-6 custom-scrollbar">
+            <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto pb-32 lg:pb-6 custom-scrollbar">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
