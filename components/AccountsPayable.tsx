@@ -199,7 +199,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className={`p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${statusColors.bg} ${statusColors.border}`}
+                className={`p-3 rounded-lg border flex flex-row items-start sm:items-center justify-between gap-3 ${statusColors.bg} ${statusColors.border}`}
             >
                 <div className="flex-1 min-w-0">
                     <p className="font-semibold text-foreground dark:text-dark-foreground truncate">{bill.description}</p>
@@ -210,18 +210,18 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                         {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
                     </div>
                 </div>
-                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
-                     <p className={`text-base sm:text-lg font-bold font-mono text-right sm:text-left ${statusColors.text}`}>
+                 <div className="flex flex-col items-end sm:flex-row sm:items-center gap-2 sm:gap-4">
+                     <p className={`text-base sm:text-lg font-bold font-mono text-right ${statusColors.text}`}>
                         {bill.isEstimate && <span className="font-normal" title="Valor estimado">(est.) </span>}
                         {formatCurrency(bill.amount)}
                      </p>
                     <div className="flex gap-2 justify-end">
                         {bill.status === 'paid' && bill.attachmentUrl && (
-                             <button onClick={() => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView })} className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Paperclip className="h-5 w-5"/></button>
+                             <button onClick={() => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView })} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Paperclip className="h-4 w-4 sm:h-5 sm:w-5"/></button>
                         )}
-                        {bill.status !== 'paid' && <button onClick={() => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView })} className="bg-primary text-primary-foreground text-sm font-semibold py-2 px-4 rounded-md">Pagar</button>}
-                        <button onClick={() => setView({ name: 'bill-form', billId: bill.id, returnView: currentView })} className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Edit className="h-5 w-5"/></button>
-                        <button onClick={() => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView })} className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-danger shadow-sm border border-border dark:border-dark-border hover:border-destructive"><Trash className="h-5 w-5"/></button>
+                        {bill.status !== 'paid' && <button onClick={() => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView })} className="bg-primary text-primary-foreground text-sm font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-md">Pagar</button>}
+                        <button onClick={() => setView({ name: 'bill-form', billId: bill.id, returnView: currentView })} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Edit className="h-4 w-4 sm:h-5 sm:w-5"/></button>
+                        <button onClick={() => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView })} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-danger shadow-sm border border-border dark:border-dark-border hover:border-destructive"><Trash className="h-4 w-4 sm:h-5 sm:w-5"/></button>
                     </div>
                 </div>
             </motion.div>
