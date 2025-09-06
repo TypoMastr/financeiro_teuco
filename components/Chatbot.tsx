@@ -3,31 +3,9 @@ import { GoogleGenAI } from '@google/genai';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ViewState } from '../types';
 import { PageHeader } from './common/PageLayout';
-import { MessageSquare, Send, User, Paperclip, RotateCw, Mic, X } from './Icons';
+import { MessageSquare, Send, User, Paperclip, RotateCw, X } from './Icons';
 import { getChatbotContextData } from '../services/api';
 import { useToast } from './Notifications';
-
-// FIX: Add type declarations for the non-standard Web Speech API to resolve TypeScript errors.
-// This prevents "Cannot find name 'SpeechRecognition'" and related property access errors on `window`.
-interface SpeechRecognition {
-    stop(): void;
-    start(): void;
-    lang: string;
-    interimResults: boolean;
-    continuous: boolean;
-    onstart: (() => void) | null;
-    onend: (() => void) | null;
-    onresult: ((event: any) => void) | null;
-    onerror: ((event: any) => void) | null;
-}
-
-// FIX: Wrap Window interface in `declare global` to correctly augment the global Window type in a module. This resolves TypeScript errors for SpeechRecognition properties.
-declare global {
-    interface Window {
-        SpeechRecognition: new () => SpeechRecognition;
-        webkitSpeechRecognition: new () => SpeechRecognition;
-    }
-}
 
 interface Message {
     sender: 'user' | 'ai';
@@ -154,19 +132,11 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
     const toast = useToast();
 
-    // Multimodal and Voice State
+    // Multimodal State
     const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
     const [imageData, setImageData] = useState<{ mimeType: string, data: string } | null>(null);
-    const [isListening, setIsListening] = useState(false);
-    const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
-    const recognitionRef = useRef<SpeechRecognition | null>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
-    const voiceModeActiveRef = useRef(isVoiceModeActive);
-
-    useEffect(() => {
-        voiceModeActiveRef.current = isVoiceModeActive;
-    }, [isVoiceModeActive]);
-
+    
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -181,32 +151,9 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     }, [messages]);
 
     const handleClearChat = () => {
-        stopVoiceMode(); // Ensure voice mode is stopped
         setMessages([{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }]);
         sessionStorage.removeItem(SESSION_STORAGE_KEY);
         toast.info("A conversa foi reiniciada.");
-    };
-    
-    const speak = (text: string, onEndCallback?: () => void) => {
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
-        }
-        speechSynthesis.cancel();
-        const cleanText = text.replace(/\*\*|\[.*?\]\(.*?\)/g, '');
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = 'pt-BR';
-        utterance.onend = () => {
-             if (onEndCallback) {
-                onEndCallback();
-            }
-        };
-        utterance.onerror = (e) => {
-            console.error("SpeechSynthesis Error:", e);
-            if (onEndCallback) {
-                onEndCallback(); // Continue the loop even if speech fails
-            }
-        };
-        speechSynthesis.speak(utterance);
     };
 
     const handleAiResponse = async (userMessage: string) => {
@@ -234,25 +181,11 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
 
             const aiResponse = response.text;
             setMessages(prev => [...prev, { sender: 'ai', text: aiResponse }]);
-            if (voiceModeActiveRef.current) {
-                speak(aiResponse, () => {
-                    if (voiceModeActiveRef.current) {
-                        startListening();
-                    }
-                });
-            }
 
         } catch (error) {
             console.error("Error calling Gemini API:", error);
             const errorText = 'Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente.';
             setMessages(prev => [...prev, { sender: 'ai', text: errorText }]);
-             if (voiceModeActiveRef.current) {
-                speak(errorText, () => {
-                     if (voiceModeActiveRef.current) {
-                        startListening();
-                    }
-                });
-            }
         } finally {
             setIsLoading(false);
             setImageData(null);
@@ -285,69 +218,6 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
         if (imageInputRef.current) imageInputRef.current.value = '';
     };
 
-    const startListening = () => {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            toast.error('Seu navegador não suporta reconhecimento de voz.');
-            stopVoiceMode();
-            return;
-        }
-        
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
-        }
-
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'pt-BR';
-        recognition.interimResults = false;
-        recognition.continuous = false;
-
-        recognition.onstart = () => setIsListening(true);
-        recognition.onend = () => {
-            setIsListening(false);
-            recognitionRef.current = null;
-        };
-        recognition.onresult = (event) => {
-            setIsListening(false);
-            const transcript = event.results[0][0].transcript;
-            setMessages(prev => [...prev, { sender: 'user', text: transcript }]);
-            handleAiResponse(transcript);
-        };
-        recognition.onerror = (event) => {
-            console.error("SpeechRecognition Error:", event.error);
-             if (event.error === 'audio-capture' || event.error === 'not-allowed') {
-                toast.error(`Erro no microfone: ${event.error}. Saindo do modo de voz.`);
-                stopVoiceMode();
-             } else if (event.error !== 'no-speech' && voiceModeActiveRef.current) {
-                // Try again if it's not just silence
-                setTimeout(() => startListening(), 500);
-            }
-        };
-        recognition.start();
-        recognitionRef.current = recognition;
-    };
-
-    const stopVoiceMode = () => {
-        setIsVoiceModeActive(false);
-        if (recognitionRef.current) {
-            recognitionRef.current.onend = null; // Prevent onend from firing again
-            recognitionRef.current.stop();
-            recognitionRef.current = null;
-        }
-        speechSynthesis.cancel();
-        setIsListening(false);
-    };
-
-    const handleToggleVoiceMode = () => {
-        if (isVoiceModeActive) {
-            stopVoiceMode();
-        } else {
-            setIsVoiceModeActive(true);
-            startListening();
-        }
-    };
-
-
     if (!apiKey) {
         return (
             <div className="flex flex-col h-full max-w-3xl mx-auto">
@@ -367,37 +237,6 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
 
     return (
         <div className="flex flex-col h-full max-w-3xl mx-auto">
-             <AnimatePresence>
-                {isVoiceModeActive && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="absolute inset-0 bg-black/70 backdrop-blur-sm z-10 flex flex-col items-center justify-center"
-                        onClick={stopVoiceMode}
-                    >
-                        <motion.div
-                            animate={{
-                                scale: isListening ? [1, 1.2, 1] : 1,
-                                opacity: isListening ? [0.7, 1, 0.7] : 0.5,
-                            }}
-                            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                            className="w-48 h-48 rounded-full bg-primary flex items-center justify-center"
-                        >
-                             <Mic className="w-20 h-20 text-white" />
-                        </motion.div>
-                        <p className="text-white font-semibold mt-6 text-lg">
-                            {isListening ? 'Ouvindo...' : (isLoading ? 'Pensando...' : 'Toque para parar')}
-                        </p>
-                        <button
-                            onClick={stopVoiceMode}
-                            className="mt-8 bg-card dark:bg-dark-card text-foreground dark:text-dark-foreground font-bold py-3 px-6 rounded-full"
-                        >
-                            Parar
-                        </button>
-                    </motion.div>
-                )}
-            </AnimatePresence>
             <div className="px-4 pt-4 sm:px-0 sm:pt-0">
                 <PageHeader
                     title="ChatGPTeuco"
@@ -442,7 +281,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                         )}
                     </motion.div>
                 ))}
-                {isLoading && !isVoiceModeActive && (
+                {isLoading && (
                      <motion.div
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -485,9 +324,6 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                         className="flex-1 w-full p-3 rounded-full bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all"
                         disabled={isLoading}
                     />
-                     <button type="button" onClick={handleToggleVoiceMode} className={`w-12 h-12 rounded-full flex items-center justify-center border border-border dark:border-dark-border transition-all ${isVoiceModeActive ? 'bg-red-500 text-white' : 'bg-card dark:bg-dark-card text-muted-foreground'}`} aria-label="Usar microfone">
-                        <Mic className="w-5 h-5" />
-                    </button>
                     <button type="submit" disabled={isLoading || (!inputValue && !imageData)} className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:scale-100 active:scale-95">
                         <Send className="w-6 h-6" />
                     </button>

@@ -1,7 +1,5 @@
 {
   "name": "Financeiro TEUCO (React)",
   "description": "Controle financeiro e de mensalidades.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
+  "requestFramePermissions": []
 }
