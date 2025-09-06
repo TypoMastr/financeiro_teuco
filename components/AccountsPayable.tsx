@@ -49,8 +49,9 @@ const FilterChip: React.FC<{ label: string, selected: boolean, onClick: () => vo
 export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
     const { componentState } = viewState as { name: 'accounts-payable', componentState?: any };
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<{ bills: PayableBill[], payees: Payee[], categories: Category[], accounts: Account[] }>({ bills: [], payees: [], categories: [], accounts: [] });
+    const [data, setData] = useState<{ bills: PayableBill[], payees: Payee[], categories: Category[], accounts: Account[], transactions: Transaction[] }>({ bills: [], payees: [], categories: [], accounts: [], transactions: [] });
     const isInitialLoad = useRef(true);
+    const [expandedBillId, setExpandedBillId] = useState<string | null>(null);
 
     const [filters, setFilters] = useState(componentState?.filters || {
         searchTerm: '',
@@ -76,10 +77,10 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
             setLoading(true);
         }
         try {
-            const [bills, payees, categories, accounts] = await Promise.all([
-                payableBillsApi.getAll(), payeesApi.getAll(), categoriesApi.getAll(), accountsApi.getAll()
+            const [bills, payees, categories, accounts, transactions] = await Promise.all([
+                payableBillsApi.getAll(), payeesApi.getAll(), categoriesApi.getAll(), accountsApi.getAll(), transactionsApi.getAll()
             ]);
-            setData({ bills, payees, categories: categories.filter(c => c.type === 'expense' || c.type === 'both'), accounts });
+            setData({ bills, payees, categories: categories.filter(c => c.type === 'expense' || c.type === 'both'), accounts, transactions });
         } catch (error) {
             console.error("Failed to fetch accounts payable data", error);
         } finally {
@@ -182,7 +183,10 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
     }, [filteredBills]);
 
     const payeeMap = useMemo(() => new Map(data.payees.map(p => [p.id, p.name])), [data.payees]);
-    
+    const categoryMap = useMemo(() => new Map(data.categories.map(c => [c.id, c.name])), [data.categories]);
+    const transactionMap = useMemo(() => new Map(data.transactions.map(t => [t.id, t])), [data.transactions]);
+    const accountMap = useMemo(() => new Map(data.accounts.map(a => [a.id, a.name])), [data.accounts]);
+
     const currentView: ViewState = { name: 'accounts-payable', componentState: { filters } };
 
     const BillRow: React.FC<{bill: PayableBill}> = ({bill}) => {
@@ -191,39 +195,97 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
             pending: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
             overdue: { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' },
         }[bill.status];
+        
+        const isExpanded = expandedBillId === bill.id;
+        const transaction = bill.transactionId ? transactionMap.get(bill.transactionId) : null;
+        const accountName = transaction ? accountMap.get(transaction.accountId) : null;
+        const categoryName = categoryMap.get(bill.categoryId);
+
+        const handleActionClick = (e: React.MouseEvent, action: () => void) => {
+            e.stopPropagation();
+            action();
+        };
 
         return (
-            <motion.div 
-                key={bill.id} 
+            <motion.div
                 layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className={`p-3 rounded-lg border flex flex-row items-start sm:items-center justify-between gap-3 ${statusColors.bg} ${statusColors.border}`}
+                key={bill.id}
+                className={`rounded-lg border overflow-hidden transition-all duration-200 ${statusColors.bg} ${statusColors.border}`}
             >
-                <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-foreground dark:text-dark-foreground truncate">{bill.description}</p>
-                    <p className="text-xs text-muted-foreground">{payeeMap.get(bill.payeeId) || 'N/A'}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text}`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
-                        <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `Pago em ${formatDate(bill.paidDate!)}` : `Vence em ${formatDate(bill.dueDate)}`}</span>
-                        {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
+                <div
+                    className="p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 cursor-pointer"
+                    onClick={() => setExpandedBillId(isExpanded ? null : bill.id)}
+                >
+                    <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-foreground dark:text-dark-foreground truncate">{bill.description}</p>
+                        <p className="text-xs text-muted-foreground">{payeeMap.get(bill.payeeId) || 'N/A'}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text}`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
+                            <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `Pago em ${formatDate(bill.paidDate!)}` : `Vence em ${formatDate(bill.dueDate)}`}</span>
+                            {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
+                        </div>
+                    </div>
+                     <div className="flex w-full sm:w-auto flex-row items-center justify-between sm:justify-end gap-2 sm:gap-4">
+                         <p className={`text-base sm:text-lg font-bold font-mono text-right ${statusColors.text}`}>
+                            {bill.isEstimate && <span className="font-normal" title="Valor estimado">(est.) </span>}
+                            {formatCurrency(bill.amount)}
+                         </p>
+                        <div className="flex gap-2 justify-end items-center">
+                            {bill.status === 'paid' && bill.attachmentUrl && (
+                                <button onClick={(e) => handleActionClick(e, () => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView }))} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Paperclip className="h-4 w-4 sm:h-5 sm:w-5"/></button>
+                            )}
+                            {bill.status !== 'paid' && <button onClick={(e) => handleActionClick(e, () => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView }))} className="bg-primary text-primary-foreground text-sm font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-md">Pagar</button>}
+                            <button onClick={(e) => handleActionClick(e, () => setView({ name: 'bill-form', billId: bill.id, returnView: currentView }))} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Edit className="h-4 w-4 sm:h-5 sm:w-5"/></button>
+                            <button onClick={(e) => handleActionClick(e, () => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView }))} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-danger shadow-sm border border-border dark:border-dark-border hover:border-destructive"><Trash className="h-4 w-4 sm:h-5 sm:w-5"/></button>
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center">
+                                <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                                    <ChevronDown className="h-5 w-5 text-muted-foreground"/>
+                                </motion.div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                 <div className="flex flex-col items-end sm:flex-row sm:items-center gap-2 sm:gap-4">
-                     <p className={`text-base sm:text-lg font-bold font-mono text-right ${statusColors.text}`}>
-                        {bill.isEstimate && <span className="font-normal" title="Valor estimado">(est.) </span>}
-                        {formatCurrency(bill.amount)}
-                     </p>
-                    <div className="flex gap-2 justify-end">
-                        {bill.status === 'paid' && bill.attachmentUrl && (
-                             <button onClick={() => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView })} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Paperclip className="h-4 w-4 sm:h-5 sm:w-5"/></button>
-                        )}
-                        {bill.status !== 'paid' && <button onClick={() => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView })} className="bg-primary text-primary-foreground text-sm font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-md">Pagar</button>}
-                        <button onClick={() => setView({ name: 'bill-form', billId: bill.id, returnView: currentView })} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Edit className="h-4 w-4 sm:h-5 sm:w-5"/></button>
-                        <button onClick={() => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView })} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-danger shadow-sm border border-border dark:border-dark-border hover:border-destructive"><Trash className="h-4 w-4 sm:h-5 sm:w-5"/></button>
-                    </div>
-                </div>
+                 <AnimatePresence>
+                    {isExpanded && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className="overflow-hidden"
+                        >
+                            <div className="px-3 pb-3 border-t border-black/10 dark:border-white/10">
+                                <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                    <div className="space-y-2">
+                                        <p><strong className="text-muted-foreground">Categoria:</strong> {categoryName || 'N/A'}</p>
+                                        {bill.installmentInfo && (
+                                            <p><strong className="text-muted-foreground">Parcela:</strong> {bill.installmentInfo.current} de {bill.installmentInfo.total}</p>
+                                        )}
+                                        {bill.recurringId && !bill.installmentInfo && (
+                                            <p><strong className="text-muted-foreground">Recorrência:</strong> Mensal</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
+                                        {transaction && (
+                                            <p><strong className="text-muted-foreground">Pago da Conta:</strong> {accountName || 'N/A'}</p>
+                                        )}
+                                        {bill.notes && <p><strong className="text-muted-foreground">Notas:</strong> {bill.notes}</p>}
+                                    </div>
+                                </div>
+                                {transaction && (
+                                    <div className="mt-3 pt-3 border-t border-black/10 dark:border-white/10">
+                                        <button
+                                            onClick={(e) => handleActionClick(e, () => setView({ name: 'transaction-form', transactionId: bill.transactionId, returnView: currentView }))}
+                                            className="text-primary font-semibold text-sm hover:underline"
+                                        >
+                                            Ver Transação Vinculada
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </motion.div>
         );
     };
