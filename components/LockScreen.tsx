@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Fingerprint, Lock } from './Icons';
 import { useToast } from './Notifications';
@@ -16,18 +16,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
   const [isError, setIsError] = useState(false);
   const [isBiometryRegistered, setIsBiometryRegistered] = useState(false);
   const toast = useToast();
-
-  useEffect(() => {
-    // Check if biometry is available and registered
-    const checkBiometry = async () => {
-        if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
-            const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-            const isRegistered = !!localStorage.getItem(BIOMETRY_CREDENTIAL_KEY);
-            setIsBiometryRegistered(isAvailable && isRegistered);
-        }
-    };
-    checkBiometry();
-  }, []);
+  const autoAuthAttempted = useRef(false);
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPassword(e.target.value);
@@ -47,8 +36,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
     }
   };
 
-  const handleBiometricAuth = async () => {
-    if (!isBiometryRegistered) return;
+  const handleBiometricAuth = useCallback(async () => {
     try {
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
@@ -77,14 +65,34 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
     } catch (err: any) {
         console.error("Falha na autenticação biométrica:", err);
         if (err.name === 'NotAllowedError') {
-             toast.error('Autenticação cancelada ou permissão negada.');
+             // User cancelled, which is fine. Don't show an error.
+             console.log('Biometric authentication cancelled by user.');
         } else if (!window.isSecureContext) {
             toast.error('A biometria requer uma conexão segura (HTTPS).');
         } else {
              toast.error('Falha na autenticação. Tente a senha.');
         }
     }
-  };
+  }, [onUnlock, toast]);
+
+  useEffect(() => {
+    const checkAndTriggerBiometry = async () => {
+      if (
+        window.PublicKeyCredential &&
+        PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable
+      ) {
+        const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        const isRegistered = !!localStorage.getItem(BIOMETRY_CREDENTIAL_KEY);
+        setIsBiometryRegistered(isAvailable && isRegistered);
+        
+        if (isAvailable && isRegistered && !autoAuthAttempted.current) {
+          autoAuthAttempted.current = true;
+          await handleBiometricAuth();
+        }
+      }
+    };
+    checkAndTriggerBiometry();
+  }, [handleBiometricAuth]);
 
 
   return (

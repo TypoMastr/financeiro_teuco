@@ -3,7 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ViewState } from '../types';
 import { PageHeader } from './common/PageLayout';
-import { MessageSquare, Send, User, Paperclip, RotateCw, X } from './Icons';
+import { MessageSquare, Send, User, Paperclip, RotateCw } from './Icons';
 import { getChatbotContextData } from '../services/api';
 import { useToast } from './Notifications';
 
@@ -71,269 +71,183 @@ try {
 
 
 const systemInstruction = `
-Você é o "ChatGPTeuco", um assistente financeiro amigável e com um estilo visual para uma pequena organização.
+Você é o "ChatGPTeuco", um assistente financeiro amigável e com um estilo visual para o TEUCO.
 Sua única fonte de conhecimento é um objeto JSON com os dados do sistema que será fornecido a cada pergunta.
-Responda às perguntas do usuário baseando-se *exclusivamente* nos dados fornecidos.
+Responda às perguntas do usuário baseando-se *exclusivamente* nos dados financeiros fornecidos. Seu objetivo é apoiar no controle financeiro e na gestão de membros, comunicando-se de forma respeitosa, acolhedora e culturalmente sensível.
 
-**REGRAS DE FORMATAÇÃO:**
+**CONTEXTO DO CENTRO (TEUCO):**
+- **Nome Completo:** Tenda Espiritualista de Umbanda Caboclo de Oxóssi (TEUCO).
+- **Endereço:** Rua Maxwell, 386 - Andaraí, Rio de Janeiro.
+- **Dirigente Principal:** Pai Carlinhos.
+- **Site para Calendário:** Para perguntas sobre programação, giras e eventos, informe que a programação completa está em **www.teuco.com.br**, pois você só tem acesso aos dados financeiros.
+
+**PERSONALIDADE E TOM DE VOZ:**
+1.  **Tom Geral:** Seja sempre acolhedor, respeitoso, empático e positivo. Use frases curtas e claras, sem jargões técnicos.
+2.  **Equilíbrio e Sutileza:** O seu papel principal é ser um assistente financeiro eficiente. A espiritualidade é um toque especial, não o foco principal.
+    *   **Saudações Padrão:** Na maioria das vezes, inicie as conversas de forma direta e amigável, como "Olá! Em que posso ajudar hoje?".
+    *   **Referências Espirituais (Uso Moderado):** *Apenas ocasionalmente*, para variar e criar uma conexão, você pode usar uma expressão leve e positiva da Umbanda. Não faça isso em todas as respostas para não soar repetitivo.
+    *   **Encerramento:** Termine as respostas com "Axé 🙏" de forma natural, quando apropriado.
+3.  **Contexto para Referências:** As referências espirituais se encaixam melhor em respostas sobre conquistas (ex: "Axé! Fechamos o mês no positivo!"), dificuldades (ex: "Com fé, vamos organizar essas pendências.") ou ao lidar com membros ("filhos de santo", "irmãos").
+4.  **Restrições IMPORTANTES:** Mantenha as referências estritamente na **linha branca**. **NUNCA** mencione Candomblé, sacrifícios, amarrações ou qualquer tipo de magia que não seja para a caridade e o bem. O foco é sempre na luz.
+
+**REGRAS DE COMUNICAÇÃO E FORMATAÇÃO:**
 1.  **Geral:** Seja conciso, amigável e use emojis para tornar a leitura mais agradável.
-2.  **Negrito:** Use **negrito** (com dois asteriscos) para destacar informações importantes como valores, totais, nomes de categorias, contas, projetos, membros e beneficiários.
-3.  **Layout Mobile:** Formate as respostas para telas estreitas. Prefira quebrar a informação em várias linhas (layout vertical) em vez de frases longas.
-    *   **Exemplo ruim (muito longo):** O saldo total de todas as contas, incluindo a Conta Corrente e a Poupança, é de R$ 1.234,56.
-    *   **Exemplo bom (vertical):**
-        O saldo total combinado é:
-        **R$ 1.234,56** 💰
-4.  **Valores Monetários:** Sempre formate como R$ 1.234,56.
-5.  **Datas:** Sempre formate como DD/MM/AAAA.
-6.  **Listas de Transações:** Para listas de transações, use o seguinte formato EXATO para cada item, quebrando as linhas:
-    [EMOJI] [Descrição da Transação]
-    ➝ **R$ [Valor]**
-    📅 [Data]
-    [✅ Receita / ❌ Despesa]
-
-    **Exemplo de lista de transações:**
-    🏡 Categoria: **Casa**
-
-    💡 Luz
-    ➝ **R$ 250,00**
-    📅 06/09/2025
-    ❌ Despesa
-
-    🌐 Internet
-    ➝ **R$ 120,00**
-    📅 10/09/2025
-    ❌ Despesa
-
-7.  **Comprovantes:** As transações podem incluir um campo 'comprovanteUrl'. Se uma transação tiver este campo e o usuário pedir, adicione o link especial [VISUALIZAR COMPROVANTE](url_do_comprovante) na linha abaixo da transação. Não exiba a URL diretamente.
-8.  **Informação Ausente:** Se a resposta não estiver nos dados, diga educadamente que você não tem essa informação. Não invente nada.
-9.  **Lógica de Data das Contas:** Para identificar a qual mês uma conta pertence, use sempre a \`dueDate\`. Por exemplo, uma conta com \`dueDate\` em '2025-09-10' é uma conta de Setembro, mesmo que tenha sido paga em outro mês.
-10. **Lógica de Despesas:** Transações do tipo 'expense' são despesas (❌). **IMPORTANTE:** Todas as contas em \`historicoDeContas\` (contas a pagar) são despesas. SEMPRE use o emoji ❌ e o status "Despesa" para elas.
-
-Hoje é ${new Date().toLocaleString('pt-BR')}.
+2.  **Negrito:** Use **negrito** (com dois asteriscos) para destacar informações importantes como valores, totais, nomes, datas e status.
+3.  **Layout Mobile:** Formate as respostas para telas estreitas, preferindo quebrar a informação em várias linhas (layout vertical).
+    *   **Exemplo CORRETO:**
+        💡 **Conta de Luz**
+        ➝ **R$ 250,00**
+        📅 06/09/2025
+        ✅ Saída
+4.  **Comunicação Financeira:** Seja direto e claro.
+    *   "Entrada registrada: **R$ 100,00** (**João**)."
+    *   "O saldo atual da conta **Principal** é de **R$ 2.350,00**."
+5.  **Comunicação com Membros:** Seja respeitoso e evite julgamentos.
+    *   Para pendências, use "contribuição em aberto" ou "pendente", nunca "está devendo". Ex: "A contribuição de **João** para **Setembro/2025** está pendente."
+6.  **Links:** Para comprovantes, use o formato Markdown: [VISUALIZAR COMPROVANTE](URL_DO_COMPROVANTE)
+7.  **Lógica:** Lembre-se que contas a pagar, mesmo que já tenham sido pagas, são **SAÍDAS** (despesas), não entradas.
+8.  **Confirmação:** Antes de executar uma ação baseada em uma interpretação, confirme com o usuário. Ex: "Você confirma que deseja registrar a entrada de R$ 100,00 feita por Pedro? ✅"
 `;
 
-const SESSION_STORAGE_KEY = 'chatbot_messages_history';
-
-const fileToBase64 = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.onerror = (error) => reject(error);
-    });
-    
+// FIX: Destructured the `setView` prop to make it available within the component scope.
 export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
-    const [messages, setMessages] = useState<Message[]>(() => {
-        try {
-            const storedMessages = sessionStorage.getItem(SESSION_STORAGE_KEY);
-            return storedMessages 
-                ? JSON.parse(storedMessages) 
-                : [{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }];
-        } catch (error) {
-            console.error("Failed to parse messages from sessionStorage", error);
-            return [{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }];
-        }
-    });
-    const [inputValue, setInputValue] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const messagesEndRef = useRef<null | HTMLDivElement>(null);
     const toast = useToast();
+    const [messages, setMessages] = useState<Message[]>([
+        { sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }
+    ]);
+    const [input, setInput] = useState('');
+    const [isTyping, setIsTyping] = useState(false);
+    const [isFetchingContext, setIsFetchingContext] = useState(false);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const contextDataCache = useRef<any>(null);
 
-    // Multimodal State
-    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-    const [imageData, setImageData] = useState<{ mimeType: string, data: string } | null>(null);
-    const imageInputRef = useRef<HTMLInputElement>(null);
-    
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        chatContainerRef.current?.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
     };
 
+    useEffect(scrollToBottom, [messages, isTyping]);
+    
     useEffect(() => {
-        try {
-            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(messages));
-        } catch (error) {
-            console.error("Failed to save messages to sessionStorage", error);
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            const scrollHeight = textareaRef.current.scrollHeight;
+            textareaRef.current.style.height = `${scrollHeight}px`;
         }
-        scrollToBottom();
-    }, [messages]);
+    }, [input]);
 
-    const handleClearChat = () => {
+    const handleResetChat = () => {
         setMessages([{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }]);
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        contextDataCache.current = null;
         toast.info("A conversa foi reiniciada.");
     };
 
-    const handleAiResponse = async (userMessage: string) => {
-        setIsLoading(true);
-        try {
-            const contextData = await getChatbotContextData();
-            const prompt = `
-                PERGUNTA DO USUÁRIO: "${userMessage || 'Analise esta imagem.'}"
+    const handleSend = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!input.trim() || isTyping || !ai) return;
 
-                DADOS DO SISTEMA (JSON):
-                ${JSON.stringify(contextData, null, 2)}
+        const userMessage: Message = { sender: 'user', text: input };
+        setMessages(prev => [...prev, userMessage]);
+        setInput('');
+        setIsTyping(true);
+        
+        try {
+            if (!contextDataCache.current) {
+                setIsFetchingContext(true);
+                contextDataCache.current = await getChatbotContextData();
+                setIsFetchingContext(false);
+            }
+
+            const prompt = `
+                DADOS FINANCEIROS ATUAIS (JSON):
+                ${JSON.stringify(contextDataCache.current, null, 2)}
+
+                ---
+                PERGUNTA DO USUÁRIO:
+                "${userMessage.text}"
             `;
             
-            const contents = { parts: [] as any[] };
-            if (imageData) {
-                contents.parts.push({ inlineData: { mimeType: imageData.mimeType, data: imageData.data } });
-            }
-             contents.parts.push({ text: prompt });
-            
-            const response = await ai!.models.generateContent({
+            const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents: contents,
-                config: { systemInstruction: systemInstruction }
+                contents: [{ parts: [{ text: prompt }] }],
+                config: { systemInstruction },
             });
+            
+            const aiMessage: Message = { sender: 'ai', text: response.text };
+            setMessages(prev => [...prev, aiMessage]);
 
-            const aiResponse = response.text;
-            setMessages(prev => [...prev, { sender: 'ai', text: aiResponse }]);
-
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error calling Gemini API:", error);
-            const errorText = 'Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente.';
-            setMessages(prev => [...prev, { sender: 'ai', text: errorText }]);
+            const errorMessage: Message = { sender: 'ai', text: `Axé! Parece que tive um problema para me conectar com os guias. Por favor, tente novamente. (${error.message || 'Erro desconhecido'})` };
+            setMessages(prev => [...prev, errorMessage]);
+            toast.error("Falha na comunicação com a IA.");
         } finally {
-            setIsLoading(false);
-            setImageData(null);
-            setImagePreviewUrl(null);
+            setIsTyping(false);
         }
     };
     
-    const handleSendMessage = async (e?: React.FormEvent) => {
-        e?.preventDefault();
-        const userMessage = inputValue.trim();
-        if ((!userMessage && !imageData) || isLoading || !ai) return;
-
-        setMessages(prev => [...prev, { sender: 'user', text: userMessage }]);
-        setInputValue('');
-        await handleAiResponse(userMessage);
-    };
-
-    const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const base64Data = await fileToBase64(file);
-            setImageData({ mimeType: file.type, data: base64Data });
-            setImagePreviewUrl(URL.createObjectURL(file));
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend(e as any);
         }
     };
 
-    const handleRemoveImage = () => {
-        setImageData(null);
-        setImagePreviewUrl(null);
-        if (imageInputRef.current) imageInputRef.current.value = '';
-    };
-
-    if (!apiKey) {
-        return (
-            <div className="flex flex-col h-full max-w-3xl mx-auto">
-                <div className="px-4 pt-4 sm:px-0 sm:pt-0">
-                    <PageHeader title="ChatGPTeuco" onBack={() => setView({ name: 'overview' })} />
-                </div>
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                    <MessageSquare className="w-16 h-16 text-muted-foreground mb-4" />
-                    <h3 className="text-xl font-bold text-foreground dark:text-dark-foreground">Chat Indisponível</h3>
-                    <p className="text-muted-foreground mt-2">
-                        A funcionalidade de chat com IA não está disponível no momento devido a um problema de configuração do ambiente.
-                    </p>
-                </div>
-            </div>
-        );
-    }
-
     return (
-        <div className="flex flex-col h-[calc(100vh-9rem)] sm:h-full max-w-3xl mx-auto">
-            <div className="px-4 pt-4 sm:px-0 sm:pt-0">
-                <PageHeader
-                    title="ChatGPTeuco"
-                    onBack={() => setView({ name: 'overview' })}
-                    action={
-                        <motion.button
-                            onClick={handleClearChat}
-                            className="bg-card dark:bg-dark-card p-2.5 rounded-full border border-border dark:border-dark-border text-muted-foreground hover:text-primary transition-colors"
-                            whileTap={{ scale: 0.9 }}
-                            aria-label="Nova conversa"
+        <div className="flex flex-col h-full max-w-2xl mx-auto">
+            <PageHeader title="ChatGPTeuco" onBack={() => setView({ name: 'overview' })} action={
+                <motion.button onClick={handleResetChat} className="p-2.5 rounded-full bg-card dark:bg-dark-card border border-border dark:border-dark-border" whileTap={{ scale: 0.9, rotate: 90 }}>
+                    <RotateCw className="h-5 w-5"/>
+                </motion.button>
+            }/>
+            <div ref={chatContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-4 p-2">
+                <AnimatePresence>
+                    {messages.map((msg, index) => (
+                        <motion.div
+                            key={index}
+                            layout
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                         >
-                            <RotateCw className="h-5 w-5" />
-                        </motion.button>
-                    }
-                />
-            </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                {messages.map((msg, index) => (
-                    <motion.div
-                        key={index}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={`flex items-start gap-3 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                        {msg.sender === 'ai' && (
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                                <MessageSquare className="w-5 h-5 text-primary" />
-                            </div>
-                        )}
-                        <div className={`max-w-md p-3 rounded-2xl ${msg.sender === 'user' ? 'bg-primary text-primary-foreground rounded-br-lg' : 'bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-lg'}`}>
-                            {msg.sender === 'ai' ? (
+                            {msg.sender === 'ai' && <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center"><MessageSquare className="h-5 w-5" /></div>}
+                            <div className={`max-w-[85%] p-3 rounded-2xl ${msg.sender === 'user' ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-md'}`}>
                                 <MessageContent text={msg.text} setView={setView} />
-                            ) : (
-                                <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                            )}
-                        </div>
-                         {msg.sender === 'user' && (
-                            <div className="w-8 h-8 rounded-full bg-muted dark:bg-dark-muted flex items-center justify-center flex-shrink-0">
-                                <User className="w-5 h-5 text-muted-foreground" />
                             </div>
-                        )}
-                    </motion.div>
-                ))}
-                {isLoading && (
-                     <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex items-start gap-3 justify-start"
-                    >
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <MessageSquare className="w-5 h-5 text-primary" />
-                        </div>
-                        <div className="max-w-md p-3 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-lg">
-                           <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '0s' }}></div>
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                           </div>
+                            {msg.sender === 'user' && <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted dark:bg-dark-muted flex items-center justify-center text-muted-foreground"><User className="h-5 w-5" /></div>}
+                        </motion.div>
+                    ))}
+                </AnimatePresence>
+                {(isTyping || isFetchingContext) && (
+                    <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-end gap-2 justify-start">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center"><MessageSquare className="h-5 w-5" /></div>
+                        <div className="max-w-[85%] p-3 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-md text-sm text-muted-foreground">
+                            {isFetchingContext ? 'Consultando os dados do terreiro...' : 'Digitando...'}
                         </div>
                     </motion.div>
                 )}
-                <div ref={messagesEndRef} />
             </div>
-
-            <div className="p-4 bg-background dark:bg-dark-background">
-                 {imagePreviewUrl && (
-                    <div className="relative inline-block mb-2">
-                        <img src={imagePreviewUrl} alt="Preview" className="h-20 w-20 object-cover rounded-md" />
-                        <button onClick={handleRemoveImage} className="absolute -top-2 -right-2 bg-card dark:bg-dark-card text-muted-foreground rounded-full p-0.5 border border-border dark:border-dark-border">
-                            <X className="h-4 w-4" />
-                        </button>
-                    </div>
-                )}
-                <form onSubmit={handleSendMessage} className="flex items-center gap-3">
-                     <input type="file" accept="image/*" ref={imageInputRef} onChange={handleImageChange} className="hidden" />
-                     <button type="button" onClick={() => imageInputRef.current?.click()} className="w-12 h-12 bg-card dark:bg-dark-card text-muted-foreground rounded-full flex items-center justify-center border border-border dark:border-dark-border transition-colors hover:bg-muted dark:hover:bg-dark-muted" aria-label="Anexar imagem">
-                        <Paperclip className="w-5 h-5" />
-                    </button>
-                    <input
-                        type="text"
-                        value={inputValue}
-                        onChange={e => setInputValue(e.target.value)}
-                        placeholder="Pergunte ou anexe uma imagem..."
-                        className="flex-1 w-full p-3 rounded-full bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all"
-                        disabled={isLoading}
+            <div className="flex-shrink-0 sticky bottom-0 left-0 right-0 z-10 pt-2 px-2 bg-background dark:bg-dark-background">
+                <form onSubmit={handleSend} className="flex items-end gap-2 max-w-2xl mx-auto">
+                    <textarea
+                        ref={textareaRef}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Pergunte..."
+                        className="flex-1 text-sm p-2.5 rounded-lg bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all resize-none"
+                        rows={1}
+                        disabled={!ai}
                     />
-                    <button type="submit" disabled={isLoading || (!inputValue && !imageData)} className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:scale-100 active:scale-95">
-                        <Send className="w-6 h-6" />
-                    </button>
+                    <motion.button
+                        type="submit"
+                        disabled={!input.trim() || isTyping || !ai}
+                        className="p-2.5 rounded-full bg-primary text-primary-foreground disabled:bg-muted disabled:text-muted-foreground transition-all"
+                        whileTap={{ scale: 0.9 }}
+                    >
+                        <Send className="h-5 w-5" />
+                    </motion.button>
                 </form>
             </div>
         </div>

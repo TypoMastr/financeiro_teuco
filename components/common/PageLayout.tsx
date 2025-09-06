@@ -13,7 +13,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, onBack, action })
     initial={{ opacity: 0, y: -20 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ type: 'spring', stiffness: 100 }}
-    className="relative flex items-center justify-center mb-6 h-10"
+    className="relative flex items-center justify-center mb-2 sm:mb-6 h-10"
   >
     <div className="absolute left-0">
         <motion.button

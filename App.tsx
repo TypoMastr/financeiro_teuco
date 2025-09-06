@@ -130,6 +130,8 @@ const App: React.FC = () => {
         exit: { opacity: 0, y: -20 },
         transition: { duration: 0.25, ease: 'easeInOut' }
     };
+    
+  const isChatbotView = view.name === 'chatbot';
 
 
   return (
@@ -150,7 +152,7 @@ const App: React.FC = () => {
               setView={setView} 
             />
             
-            <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto pb-32 lg:pb-6 custom-scrollbar">
+            <main className={`flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto ${isChatbotView ? 'pb-16 lg:pb-6' : 'pb-32 lg:pb-6'} custom-scrollbar`}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
