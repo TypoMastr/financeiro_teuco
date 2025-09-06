@@ -143,7 +143,7 @@ const App: React.FC = () => {
             initial={{ opacity: 0, scale: 1.05 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.4, ease: 'easeOut' }}
-            className="flex h-screen bg-background dark:bg-dark-background text-foreground dark:text-dark-foreground"
+            className="flex h-full bg-background dark:bg-dark-background text-foreground dark:text-dark-foreground"
           >
             <Sidebar 
               currentViewName={view.name}
@@ -154,7 +154,7 @@ const App: React.FC = () => {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
-                  className="w-full h-full"
+                  className="w-full"
                   {...animationProps}
                 >
                   {renderView()}
