@@ -218,7 +218,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                 >
                     <div className="flex justify-between items-start gap-4">
                         <div className="flex-1 min-w-0">
-                            <p className="font-bold text-foreground dark:text-dark-foreground truncate">{bill.description}</p>
+                            <p className="font-bold text-foreground dark:text-dark-foreground break-words">{bill.description}</p>
                             <p className="text-sm text-muted-foreground">{payeeMap.get(bill.payeeId) || 'N/A'}</p>
                         </div>
                         <div className="flex-shrink-0">
@@ -229,27 +229,34 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                         </div>
                     </div>
                     
-                    <div className="flex justify-between items-center mt-3">
+                    <div className="flex justify-between items-end mt-3">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text} ring-1 ring-inset ring-current/20`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
                             <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `em ${formatDate(bill.paidDate!)}` : `vence em ${formatDate(bill.dueDate)}`}</span>
                             {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
                         </div>
                         
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-col items-end gap-2 flex-shrink-0">
                             {bill.status !== 'paid' && 
-                              <button onClick={(e) => handleActionClick(e, () => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView }))} 
-                              className="text-primary bg-primary/10 hover:bg-primary/20 font-semibold text-xs py-1.5 px-3 rounded-full transition-colors">
-                                Pagar
-                              </button>
+                                <button 
+                                    onClick={(e) => handleActionClick(e, () => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView }))} 
+                                    className="text-primary bg-primary/10 hover:bg-primary/20 font-semibold text-xs py-1.5 px-3 rounded-full transition-colors w-full"
+                                >
+                                    Pagar
+                                </button>
                             }
-                            <button title="Editar" onClick={(e) => handleActionClick(e, () => setView({ name: 'bill-form', billId: bill.id, returnView: currentView }))} className="h-7 w-7 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted dark:hover:bg-dark-muted transition-colors"><Edit className="h-4 w-4"/></button>
-                            <button title="Excluir" onClick={(e) => handleActionClick(e, () => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView }))} className="h-7 w-7 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted dark:hover:bg-dark-muted transition-colors"><Trash className="h-4 w-4"/></button>
-                            
-                            <div className="h-7 w-7 flex items-center justify-center">
-                              <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                                  <ChevronDown className="h-5 w-5 text-muted-foreground"/>
-                              </motion.div>
+                            <div className="flex items-center gap-2">
+                                <button title="Editar" onClick={(e) => handleActionClick(e, () => setView({ name: 'bill-form', billId: bill.id, returnView: currentView }))} className="h-7 w-7 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted dark:hover:bg-dark-muted transition-colors">
+                                    <Edit className="h-4 w-4"/>
+                                </button>
+                                <button title="Excluir" onClick={(e) => handleActionClick(e, () => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView }))} className="h-7 w-7 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted dark:hover:bg-dark-muted transition-colors">
+                                    <Trash className="h-4 w-4"/>
+                                </button>
+                                <div className="h-7 w-7 flex items-center justify-center">
+                                    <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                                        <ChevronDown className="h-5 w-5 text-muted-foreground"/>
+                                    </motion.div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -310,30 +317,32 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center sm:justify-between gap-4">
+                <div className="hidden sm:flex items-center gap-3">
                     <div className="p-2 bg-primary/10 rounded-lg"><ClipboardList className="h-6 w-6 text-primary"/></div>
-                    <h2 className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Contas a Pagar</h2>
+                    <h2 className="text-xl sm:text-2xl font-bold font-display text-foreground dark:text-dark-foreground">Contas a Pagar</h2>
                 </div>
-                 <motion.button onClick={() => setView({ name: 'bill-form', returnView: currentView })} className="bg-primary text-primary-foreground font-semibold py-2.5 px-5 rounded-full flex items-center gap-2 active:scale-95 transition-transform shadow-btn dark:shadow-dark-btn" whileTap={{scale:0.98}}>
-                    <PlusCircle className="h-5 w-5"/> Nova Conta
+                 <motion.button onClick={() => setView({ name: 'bill-form', returnView: currentView })} className="bg-primary text-primary-foreground font-semibold py-2.5 px-5 rounded-full flex items-center gap-2 active:scale-95 transition-transform shadow-btn dark:shadow-dark-btn flex-shrink-0" whileTap={{scale:0.98}}>
+                    <PlusCircle className="h-5 w-5"/>
+                    <span>Nova Conta</span>
                 </motion.button>
             </div>
             
-            <div className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border space-y-4">
-                <h3 className="font-bold">Resumo</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+            <div className="bg-card dark:bg-dark-card p-3 rounded-lg border border-border dark:border-dark-border">
+                 <div className="flex justify-between items-center text-center gap-2">
                     <div>
-                        <p className="text-sm text-muted-foreground">Vencido Anterior</p>
-                        <p className="text-lg font-bold text-danger">{formatCurrency(summary.previousOverdue.amount)}</p>
+                        <p className="text-xs font-medium text-muted-foreground">Vencido Anterior</p>
+                        <p className="text-base sm:text-lg font-bold text-danger">{formatCurrency(summary.previousOverdue.amount)}</p>
                     </div>
+                    <div className="w-px h-10 bg-border dark:bg-dark-border"></div>
                      <div>
-                        <p className="text-sm text-muted-foreground">Aberto no Mês</p>
-                        <p className="text-lg font-bold text-warning">{formatCurrency(summary.thisMonth.openAmount)}</p>
+                        <p className="text-xs font-medium text-muted-foreground">Aberto no Mês</p>
+                        <p className="text-base sm:text-lg font-bold text-warning">{formatCurrency(summary.thisMonth.openAmount)}</p>
                     </div>
+                    <div className="w-px h-10 bg-border dark:bg-dark-border"></div>
                      <div>
-                        <p className="text-sm text-muted-foreground">Pago no Mês</p>
-                        <p className="text-lg font-bold text-success">{formatCurrency(summary.thisMonth.paidAmount)}</p>
+                        <p className="text-xs font-medium text-muted-foreground">Pago no Mês</p>
+                        <p className="text-base sm:text-lg font-bold text-success">{formatCurrency(summary.thisMonth.paidAmount)}</p>
                     </div>
                 </div>
             </div>
@@ -346,7 +355,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                             className="w-full pl-9 pr-3 py-2 bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-lg"
                         />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
                         <FilterChip label="Todos" selected={filters.status === 'all'} onClick={() => setFilters(f => ({...f, status: 'all'}))} />
                         <FilterChip label="Pendentes" selected={filters.status === 'pending'} onClick={() => setFilters(f => ({...f, status: 'pending'}))} />
                         <FilterChip label="Pagos" selected={filters.status === 'paid'} onClick={() => setFilters(f => ({...f, status: 'paid'}))} />
@@ -388,13 +397,28 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
 
                                                     return (
                                                         <motion.div key={monthKey} layout className="bg-background dark:bg-dark-background/60 rounded-lg border border-border dark:border-dark-border">
-                                                            <button onClick={() => toggleExpand(monthKey)} className="w-full p-3 text-left">
-                                                                <div className="flex justify-between items-center">
-                                                                    <div className="font-semibold capitalize">{monthName} <span className="text-xs font-normal text-muted-foreground">({monthData.bills.length} contas)</span></div>
-                                                                    <div className="flex items-center gap-4">
-                                                                        <div className="text-sm text-right">
-                                                                            {monthData.openAmount > 0 && <div className="text-danger">Aberto: {formatCurrency(monthData.openAmount)}</div>}
-                                                                            {monthData.paidAmount > 0 && <div className="text-success">Pago: {formatCurrency(monthData.paidAmount)}</div>}
+                                                            <button onClick={() => toggleExpand(monthKey)} className="w-full p-3 text-left transition-colors hover:bg-muted/50 dark:hover:bg-dark-muted/50">
+                                                                <div className="flex justify-between items-center gap-3">
+                                                                    <div className="flex flex-col items-center text-center sm:items-start sm:text-left min-w-0 flex-1">
+                                                                        <span className="font-semibold capitalize">{monthName}</span>
+                                                                        <span className="text-xs font-normal text-muted-foreground whitespace-nowrap">
+                                                                            ({monthData.bills.length} {monthData.bills.length === 1 ? 'conta' : 'contas'})
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                                        <div className="flex flex-col text-sm font-mono items-end">
+                                                                            {monthData.openAmount > 0 && (
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="text-muted-foreground font-sans text-xs">Aberto:</span>
+                                                                                    <span className="font-semibold text-danger">{formatCurrency(monthData.openAmount)}</span>
+                                                                                </div>
+                                                                            )}
+                                                                            {monthData.paidAmount > 0 && (
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="text-muted-foreground font-sans text-xs">Pago:</span>
+                                                                                    <span className="font-semibold text-success">{formatCurrency(monthData.paidAmount)}</span>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                         <motion.div animate={{ rotate: isMonthExpanded ? 180 : 0 }}>
                                                                             <ChevronDown className="h-4 w-4 text-muted-foreground" />

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'financeiro-pwa-v2'; // Incremented version to force update
+const CACHE_NAME = 'financeiro-pwa-v3'; // Incremented version to force update
 const URLS_TO_CACHE = [
   '/',
   '/index.html',

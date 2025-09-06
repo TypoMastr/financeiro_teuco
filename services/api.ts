@@ -1253,11 +1253,12 @@ export const getChatbotContextData = async () => {
     const payeeMap = new Map(payees.map(p => [p.id, p.name]));
     const projectMap = new Map(projects.map(p => [p.id, p.name]));
     const tagMap = new Map(tags.map(t => [t.id, t.name]));
+    const accountMap = new Map(accounts.map(a => [a.id, a.name]));
 
     return {
         resumoGeral: {
             ...stats,
-            dataAtual: new Date().toLocaleDateString('pt-BR')
+            dataHoraAtual: new Date().toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })
         },
         membros: members.map(({ name, email, phone, birthday, monthlyFee, activityStatus, paymentStatus, totalDue }) => ({ 
             name, 
@@ -1274,6 +1275,7 @@ export const getChatbotContextData = async () => {
             valor: t.amount,
             data: t.date,
             tipo: t.type,
+            conta: accountMap.get(t.accountId) || 'Conta não identificada',
             categoria: categoryMap.get(t.categoryId) || 'Não categorizado',
             beneficiario: t.payeeId ? payeeMap.get(t.payeeId) : undefined,
             projeto: t.projectId ? projectMap.get(t.projectId) : undefined,

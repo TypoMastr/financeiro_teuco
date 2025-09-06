@@ -152,7 +152,7 @@ const App: React.FC = () => {
               setView={setView} 
             />
             
-            <main className={`flex-1 custom-scrollbar ${isChatbotView ? 'overflow-hidden' : 'p-4 sm:p-6 lg:p-8 overflow-y-auto pb-24 lg:pb-6'}`}>
+            <main className={`flex-1 custom-scrollbar p-4 sm:p-6 lg:p-8 pb-24 lg:pb-6 ${isChatbotView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
