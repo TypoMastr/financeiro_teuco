@@ -3,9 +3,28 @@ import { GoogleGenAI } from '@google/genai';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ViewState } from '../types';
 import { PageHeader } from './common/PageLayout';
-import { MessageSquare, Send, User, Paperclip, RotateCw } from './Icons';
+// FIX: Add X icon to imports to resolve "Cannot find name 'X'" error.
+import { MessageSquare, Send, User, Paperclip, RotateCw, Mic, X } from './Icons';
 import { getChatbotContextData } from '../services/api';
 import { useToast } from './Notifications';
+
+// FIX: Add type declarations for the non-standard Web Speech API to resolve TypeScript errors.
+// This prevents "Cannot find name 'SpeechRecognition'" and related property access errors on `window`.
+interface SpeechRecognition {
+    stop(): void;
+    start(): void;
+    lang: string;
+    interimResults: boolean;
+    onstart: (() => void) | null;
+    onend: (() => void) | null;
+    onresult: ((event: any) => void) | null;
+    onerror: ((event: any) => void) | null;
+}
+
+interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+}
 
 interface Message {
     sender: 'user' | 'ai';
@@ -101,11 +120,19 @@ Responda às perguntas do usuário baseando-se *exclusivamente* nos dados fornec
 7.  **Comprovantes:** As transações podem incluir um campo 'comprovanteUrl'. Se uma transação tiver este campo e o usuário pedir, adicione o link especial [VISUALIZAR COMPROVANTE](url_do_comprovante) na linha abaixo da transação. Não exiba a URL diretamente.
 8.  **Informação Ausente:** Se a resposta não estiver nos dados, diga educadamente que você não tem essa informação. Não invente nada.
 
-Hoje é ${new Date().toLocaleDateString('pt-BR')}.
+Hoje é ${new Date().toLocaleString('pt-BR')}.
 `;
 
 const SESSION_STORAGE_KEY = 'chatbot_messages_history';
 
+const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = (error) => reject(error);
+    });
+    
 export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
     const [messages, setMessages] = useState<Message[]>(() => {
         try {
@@ -122,6 +149,13 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
     const toast = useToast();
+
+    // Multimodal and Voice State
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+    const [imageData, setImageData] = useState<{ mimeType: string, data: string } | null>(null);
+    const [isListening, setIsListening] = useState(false);
+    const recognitionRef = useRef<SpeechRecognition | null>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -141,28 +175,48 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
         sessionStorage.removeItem(SESSION_STORAGE_KEY);
         toast.info("A conversa foi reiniciada.");
     };
+    
+    const speak = (text: string) => {
+        // Remove markdown for cleaner speech
+        const cleanText = text.replace(/\*\*|\[.*?\]\(.*?\)/g, '');
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = 'pt-BR';
+        speechSynthesis.speak(utterance);
+    };
 
-    const handleSendMessage = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSendMessage = async (e?: React.FormEvent) => {
+        e?.preventDefault();
         const userMessage = inputValue.trim();
-        if (!userMessage || isLoading || !ai) return;
+        if ((!userMessage && !imageData) || isLoading || !ai) return;
 
-        setMessages(prev => [...prev, { sender: 'user', text: userMessage }]);
+        const currentMessages = [...messages];
+        if (userMessage) {
+            currentMessages.push({ sender: 'user', text: userMessage });
+        }
+        setMessages(currentMessages);
         setInputValue('');
         setIsLoading(true);
 
         try {
             const contextData = await getChatbotContextData();
             const prompt = `
-                PERGUNTA DO USUÁRIO: "${userMessage}"
+                PERGUNTA DO USUÁRIO: "${userMessage || 'Analise esta imagem.'}"
 
                 DADOS DO SISTEMA (JSON):
                 ${JSON.stringify(contextData, null, 2)}
             `;
-
+            
+            const contents = { parts: [] as any[] };
+            if (imageData) {
+                contents.parts.push({ inlineData: { mimeType: imageData.mimeType, data: imageData.data } });
+            }
+            if (userMessage) {
+                contents.parts.push({ text: prompt });
+            }
+            
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents: prompt,
+                contents: contents,
                 config: {
                     systemInstruction: systemInstruction,
                 }
@@ -170,14 +224,65 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
 
             const aiResponse = response.text;
             setMessages(prev => [...prev, { sender: 'ai', text: aiResponse }]);
+            speak(aiResponse);
 
         } catch (error) {
             console.error("Error calling Gemini API:", error);
-            setMessages(prev => [...prev, { sender: 'ai', text: 'Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente.' }]);
+            const errorText = 'Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente.';
+            setMessages(prev => [...prev, { sender: 'ai', text: errorText }]);
+            speak(errorText);
         } finally {
             setIsLoading(false);
+            setImageData(null);
+            setImagePreviewUrl(null);
         }
     };
+    
+    const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const base64Data = await fileToBase64(file);
+            setImageData({ mimeType: file.type, data: base64Data });
+            setImagePreviewUrl(URL.createObjectURL(file));
+        }
+    };
+
+    const handleRemoveImage = () => {
+        setImageData(null);
+        setImagePreviewUrl(null);
+        if (imageInputRef.current) imageInputRef.current.value = '';
+    };
+
+    const handleToggleListening = () => {
+        if (isListening) {
+            recognitionRef.current?.stop();
+            setIsListening(false);
+        } else {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                toast.error('Seu navegador não suporta reconhecimento de voz.');
+                return;
+            }
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'pt-BR';
+            recognition.interimResults = false;
+            recognition.onstart = () => setIsListening(true);
+            recognition.onend = () => setIsListening(false);
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                setInputValue(transcript);
+                // Automatically send message after speech ends
+                setTimeout(() => handleSendMessage(), 100);
+            };
+            recognition.onerror = (event) => {
+                toast.error(`Erro de reconhecimento: ${event.error}`);
+                setIsListening(false);
+            };
+            recognition.start();
+            recognitionRef.current = recognition;
+        }
+    };
+
 
     if (!apiKey) {
         return (
@@ -264,16 +369,32 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
             </div>
 
             <div className="p-4 bg-background dark:bg-dark-background">
+                 {imagePreviewUrl && (
+                    <div className="relative inline-block mb-2">
+                        <img src={imagePreviewUrl} alt="Preview" className="h-20 w-20 object-cover rounded-md" />
+                        <button onClick={handleRemoveImage} className="absolute -top-2 -right-2 bg-card dark:bg-dark-card text-muted-foreground rounded-full p-0.5 border border-border dark:border-dark-border">
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                )}
+                {isListening && <div className="text-center text-sm text-primary mb-2 font-semibold animate-pulse">Ouvindo...</div>}
                 <form onSubmit={handleSendMessage} className="flex items-center gap-3">
+                     <input type="file" accept="image/*" ref={imageInputRef} onChange={handleImageChange} className="hidden" />
+                     <button type="button" onClick={() => imageInputRef.current?.click()} className="w-12 h-12 bg-card dark:bg-dark-card text-muted-foreground rounded-full flex items-center justify-center border border-border dark:border-dark-border transition-colors hover:bg-muted dark:hover:bg-dark-muted" aria-label="Anexar imagem">
+                        <Paperclip className="w-5 h-5" />
+                    </button>
                     <input
                         type="text"
                         value={inputValue}
                         onChange={e => setInputValue(e.target.value)}
-                        placeholder="Pergunte sobre os dados..."
+                        placeholder="Pergunte ou anexe uma imagem..."
                         className="flex-1 w-full p-3 rounded-full bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all"
                         disabled={isLoading}
                     />
-                    <button type="submit" disabled={isLoading || !inputValue} className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:scale-100 active:scale-95">
+                     <button type="button" onClick={handleToggleListening} className={`w-12 h-12 rounded-full flex items-center justify-center border border-border dark:border-dark-border transition-all ${isListening ? 'bg-red-500 text-white' : 'bg-card dark:bg-dark-card text-muted-foreground'}`} aria-label="Usar microfone">
+                        <Mic className="w-5 h-5" />
+                    </button>
+                    <button type="submit" disabled={isLoading || (!inputValue && !imageData)} className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:scale-100 active:scale-95">
                         <Send className="w-6 h-6" />
                     </button>
                 </form>
