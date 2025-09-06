@@ -709,10 +709,10 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
             <PageHeader title="Pagar Conta" onBack={() => setView(returnView)} />
             <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
-                 <div className="p-4 bg-primary/10 rounded-lg text-center">
-                    <p className="text-sm font-medium text-primary">{bill.description}</p>
-                    <p className="text-3xl font-bold text-primary">{formatCurrency(bill.amount)}</p>
-                </div>
+                 <div className="text-center border-b border-border dark:border-dark-border pb-4">
+                    <p className="text-lg font-semibold text-foreground dark:text-dark-foreground">{bill.description}</p>
+                    <p className="text-sm text-muted-foreground">Vencimento: {formatDate(bill.dueDate)}</p>
+                 </div>
 
                 <div className="flex bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
                     <button type="button" onClick={() => setPaymentType('new')} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${paymentType === 'new' ? 'bg-card dark:bg-dark-card shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Novo Pagamento</button>
@@ -722,7 +722,16 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
                 {paymentType === 'new' ? (
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div><label className={labelClass}>Valor Pago</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass} /></div>
+                            <div>
+                                <label className={labelClass}>Valor a Pagar</label>
+                                <input 
+                                    type="text" 
+                                    value={amountStr} 
+                                    onChange={handleAmountChange} 
+                                    required 
+                                    className={`${inputClass} text-center text-lg font-bold`} 
+                                />
+                            </div>
                             <DateField id="paymentDate" label="Data do Pagamento" value={formState.paymentDate} onChange={date => setFormState(f => ({ ...f, paymentDate: date }))} required />
                         </div>
                          <div><label className={labelClass}>Conta de Origem</label><select value={formState.accountId} onChange={e => setFormState(f => ({...f, accountId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
