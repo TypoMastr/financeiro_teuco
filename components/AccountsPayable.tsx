@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { ViewState, PayableBill, Payee, Category, Account, Transaction } from '../types';
 // FIX: Added `addPayableBill` to the import list to resolve the module error.
 import { payableBillsApi, payeesApi, categoriesApi, accountsApi, addPayableBill, payBill, getUnlinkedExpenses, linkExpenseToBill, transactionsApi } from '../services/api';
-import { PlusCircle, Edit, Trash, DollarSign, Search, ClipboardList, Repeat, Paperclip, X as XIcon, ArrowLeft, ClipboardPaste } from './Icons';
+import { PlusCircle, Edit, Trash, DollarSign, Search, ClipboardList, Repeat, Paperclip, X as XIcon, ArrowLeft, ClipboardPaste, ChevronDown } from './Icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
@@ -56,6 +56,20 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
         searchTerm: '',
         status: 'all' as 'all' | 'overdue' | 'pending' | 'paid',
     });
+    
+    const [expandedKeys, setExpandedKeys] = useState<string[]>(() => {
+        const now = new Date();
+        const yearKey = now.getFullYear().toString();
+        const monthKey = `${yearKey}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+        // Expand current year and month by default
+        return [yearKey, monthKey];
+    });
+
+    const toggleExpand = (key: string) => {
+        setExpandedKeys(prev =>
+            prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+        );
+    };
 
     const fetchData = useCallback(async (isUpdate = false) => {
         if (!isUpdate) {
@@ -128,36 +142,48 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
         return { summary: summaryData, filteredBills: bills };
     }, [data.bills, filters]);
 
-    const { overdue, pending, paid } = useMemo(() => {
-        return {
-            overdue: filteredBills.filter(b => b.status === 'overdue').sort((a,b) => a.dueDate.localeCompare(b.dueDate)),
-            pending: filteredBills.filter(b => b.status === 'pending').sort((a,b) => a.dueDate.localeCompare(b.dueDate)),
-            paid: filteredBills.filter(b => b.status === 'paid').sort((a,b) => (b.paidDate || '').localeCompare(a.paidDate || ''))
+    const groupedBillsByYear = useMemo(() => {
+        const groups: Record<string, Record<string, {
+            bills: PayableBill[];
+            totalAmount: number;
+            openAmount: number;
+            paidAmount: number;
+        }>> = {};
+
+        const sortedBills = [...filteredBills].sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+
+        for (const bill of sortedBills) {
+            const dueDate = new Date(bill.dueDate + 'T12:00:00Z');
+            const year = dueDate.getFullYear().toString();
+            const month = (dueDate.getMonth() + 1).toString().padStart(2, '0');
+            const yearMonthKey = `${year}-${month}`;
+
+            if (!groups[year]) {
+                groups[year] = {};
+            }
+            if (!groups[year][yearMonthKey]) {
+                groups[year][yearMonthKey] = {
+                    bills: [],
+                    totalAmount: 0,
+                    openAmount: 0,
+                    paidAmount: 0,
+                };
+            }
+            const monthGroup = groups[year][yearMonthKey];
+            monthGroup.bills.push(bill);
+            monthGroup.totalAmount += bill.amount;
+            if (bill.status === 'paid') {
+                monthGroup.paidAmount += bill.amount;
+            } else {
+                monthGroup.openAmount += bill.amount;
+            }
         }
+        return groups;
     }, [filteredBills]);
 
     const payeeMap = useMemo(() => new Map(data.payees.map(p => [p.id, p.name])), [data.payees]);
     
     const currentView: ViewState = { name: 'accounts-payable', componentState: { filters } };
-
-    // FIX: Corrected component prop type to return React.ReactNode, fixing an issue where it was inferred as returning 'void'.
-    const Section: React.FC<{ title: string; bills: PayableBill[]; emptyText: string; children: (bill: PayableBill) => React.ReactNode }> = ({ title, bills, emptyText, children }) => (
-        <div>
-            <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground mb-3">{title} ({bills.length})</h3>
-            <div className="space-y-3 min-h-[8rem]">
-              <AnimatePresence>
-                {bills.length > 0 ? (
-                    bills.map(children)
-                ) : (
-                    // FIX: This component was truncated and had invalid syntax. Reconstructed it to correctly display the empty state message.
-                    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="text-center py-8 text-muted-foreground bg-card dark:bg-dark-muted/50 rounded-lg">
-                        <p>{emptyText}</p>
-                    </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-        </div>
-    );
 
     const BillRow: React.FC<{bill: PayableBill}> = ({bill}) => {
         const statusColors = {
@@ -250,18 +276,86 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                 </div>
             </div>
 
-            <div className="space-y-6">
-                <Section title="Vencidas" bills={overdue} emptyText="Nenhuma conta vencida.">
-                    {(bill) => <BillRow key={bill.id} bill={bill} />}
-                </Section>
-                <Section title="Pendentes" bills={pending} emptyText="Nenhuma conta pendente para o período.">
-                    {(bill) => <BillRow key={bill.id} bill={bill} />}
-                </Section>
-                <Section title="Pagas" bills={paid} emptyText="Nenhuma conta paga no período.">
-                    {(bill) => <BillRow key={bill.id} bill={bill} />}
-                </Section>
-            </div>
+            <div className="space-y-4">
+                {Object.keys(groupedBillsByYear).length > 0 ? (
+                    Object.keys(groupedBillsByYear).sort((a, b) => b.localeCompare(a)).map(year => {
+                        const isYearExpanded = expandedKeys.includes(year);
+                        const yearData = groupedBillsByYear[year];
+                        const sortedMonths = Object.keys(yearData).sort((a, b) => b.localeCompare(a));
 
+                        return (
+                            <motion.div key={year} layout className="bg-card dark:bg-dark-card rounded-xl border border-border dark:border-dark-border">
+                                <button onClick={() => toggleExpand(year)} className="w-full p-4 text-left">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">{year}</h3>
+                                        <motion.div animate={{ rotate: isYearExpanded ? 180 : 0 }}>
+                                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                        </motion.div>
+                                    </div>
+                                </button>
+                                <AnimatePresence>
+                                    {isYearExpanded && (
+                                        <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: 'auto', opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                            className="overflow-hidden"
+                                        >
+                                            <div className="px-4 pb-4 space-y-3">
+                                                {sortedMonths.map(monthKey => {
+                                                    const isMonthExpanded = expandedKeys.includes(monthKey);
+                                                    const monthData = yearData[monthKey];
+                                                    const monthName = new Date(monthKey + '-02').toLocaleDateString('pt-BR', { month: 'long' });
+
+                                                    return (
+                                                        <motion.div key={monthKey} layout className="bg-background dark:bg-dark-background/60 rounded-lg border border-border dark:border-dark-border">
+                                                            <button onClick={() => toggleExpand(monthKey)} className="w-full p-3 text-left">
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="font-semibold capitalize">{monthName} <span className="text-xs font-normal text-muted-foreground">({monthData.bills.length} contas)</span></div>
+                                                                    <div className="flex items-center gap-4">
+                                                                        <div className="text-sm text-right">
+                                                                            {monthData.openAmount > 0 && <div className="text-danger">Aberto: {formatCurrency(monthData.openAmount)}</div>}
+                                                                            {monthData.paidAmount > 0 && <div className="text-success">Pago: {formatCurrency(monthData.paidAmount)}</div>}
+                                                                        </div>
+                                                                        <motion.div animate={{ rotate: isMonthExpanded ? 180 : 0 }}>
+                                                                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                                        </motion.div>
+                                                                    </div>
+                                                                </div>
+                                                            </button>
+                                                            <AnimatePresence>
+                                                                {isMonthExpanded && (
+                                                                    <motion.div
+                                                                        initial={{ height: 0, opacity: 0 }}
+                                                                        animate={{ height: 'auto', opacity: 1 }}
+                                                                        exit={{ height: 0, opacity: 0 }}
+                                                                        transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                                                        className="overflow-hidden"
+                                                                    >
+                                                                        <div className="p-2 space-y-2">
+                                                                            {monthData.bills.map(bill => <BillRow key={bill.id} bill={bill} />)}
+                                                                        </div>
+                                                                    </motion.div>
+                                                                )}
+                                                            </AnimatePresence>
+                                                        </motion.div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </motion.div>
+                        );
+                    })
+                ) : (
+                    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="text-center py-16 text-muted-foreground bg-card dark:bg-dark-card rounded-lg">
+                        <p className="font-semibold">Nenhuma conta encontrada.</p>
+                        <p className="text-sm">Tente ajustar os filtros ou adicione uma nova conta.</p>
+                    </motion.div>
+                )}
+            </div>
         </div>
     );
 };
