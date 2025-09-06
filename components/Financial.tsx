@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, Account, Transaction, Category, Payee, Tag, Member, Project, PayableBill, Payment } from '../types';
 // FIX: Removed unused 'linkTransactionToPayment' import which caused an error.
-import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink, payableBillsApi } from '../services/api';
+import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink, payableBillsApi, linkExpenseToBill } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { DollarSign, FileSearch, PlusCircle, Paperclip, X as XIcon, Briefcase, Tag as TagIcon, ArrowLeft, Search, TrendingUp, ChevronRight, Layers, UploadCloud, ClipboardPaste } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
@@ -65,9 +65,9 @@ const TransactionRow: React.FC<{ transaction: Transaction, data: any, onClick: (
           className="border-b border-border/50 dark:border-dark-border/50 hover:bg-muted/50 dark:hover:bg-dark-muted/50 cursor-pointer transition-colors"
         >
             <td className="py-3 px-4 text-sm">
-                <div className="flex items-center gap-2">
-                    {transaction.attachmentUrl && (
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }} className="text-muted-foreground hover:text-primary"><Paperclip className="h-4 w-4"/></button>
+                <div className="flex items-center gap-3">
+                     {transaction.attachmentUrl && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }} className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full transition-all bg-muted/50 dark:bg-dark-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Paperclip className="h-4 w-4"/></button>
                     )}
                     <div>
                         <p className="font-semibold text-foreground dark:text-dark-foreground">{transaction.description}</p>
@@ -387,7 +387,7 @@ export const TransactionFormPage: React.FC<{
     const isEdit = !!transactionId;
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [], payableBills: [] });
+    const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [], allPayableBills: [] });
     const [transaction, setTransaction] = useState<Transaction | undefined>(undefined);
     const toast = useToast();
     
@@ -413,36 +413,40 @@ export const TransactionFormPage: React.FC<{
     const [amountStr, setAmountStr] = useState('R$ 0,00');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [linkToBill, setLinkToBill] = useState(false);
-    const [availableBills, setAvailableBills] = useState<PayableBill[]>([]);
     
     // State for linking/editing membership payment
     const [paymentLink, setPaymentLink] = useState<{ memberId: string; referenceMonth: string; } | null>(null);
     const [showPaymentLinkUI, setShowPaymentLinkUI] = useState(false);
+    
+    // State for linking to a bill
+    const [availableBills, setAvailableBills] = useState<PayableBill[]>([]);
+    const [selectedBillId, setSelectedBillId] = useState('');
 
     useEffect(() => {
         let isCancelled = false;
     
         const loadAllData = async () => {
             try {
-                const [cats, pys, tgs, projs, accs, membs, allTransactions, allBills] = await Promise.all([
-                    categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll(), payableBillsApi.getAll()
+                const [cats, pys, tgs, projs, accs, membs, allTransactions, billsForLinking, allPayableBills] = await Promise.all([
+                    categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll(), getPayableBillsForLinking(), payableBillsApi.getAll()
                 ]);
     
                 if (isCancelled) return;
     
+                setAvailableBills(billsForLinking);
+                setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs, allPayableBills: allPayableBills });
+
                 if (isEdit && transactionId) {
                     const trx = allTransactions.find(t => t.id === transactionId);
-                    if (!trx) {
-                        throw new Error("Transação não encontrada.");
-                    }
+                    if (!trx) { throw new Error("Transação não encontrada."); }
                     
-                    const linkedBill = allBills.find(b => b.transactionId === transactionId);
-                    if (linkedBill) {
-                        trx.payableBillId = linkedBill.id;
-                    }
+                    const linkedBill = allPayableBills.find(b => b.transactionId === transactionId);
+                    if (linkedBill) { trx.payableBillId = linkedBill.id; setSelectedBillId(linkedBill.id); }
                     
                     setTransaction(trx);
+                    if (trx.payableBillId) setSelectedBillId(trx.payableBillId);
+
+
                     if (trx.type === 'income') {
                         const payment = await getPaymentByTransactionId(trx.id);
                         if (isCancelled) return;
@@ -452,24 +456,18 @@ export const TransactionFormPage: React.FC<{
                         }
                     }
                 }
-                setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs, payableBills: allBills });
             } catch (err: any) {
                 if (isCancelled) return;
                 console.error("Falha ao carregar dados da transação:", err);
                 toast.error("Não foi possível carregar os dados.");
                 setError(err.message || "Erro desconhecido ao carregar dados.");
             } finally {
-                if (!isCancelled) {
-                    setLoading(false);
-                }
+                if (!isCancelled) { setLoading(false); }
             }
         };
         
         loadAllData();
-        
-        return () => {
-            isCancelled = true;
-        };
+        return () => { isCancelled = true; };
     }, [transactionId, isEdit, toast]);
 
     useEffect(() => {
@@ -482,15 +480,8 @@ export const TransactionFormPage: React.FC<{
                 attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename,
             });
             setAmountStr(formatCurrencyForInput(transaction.amount));
-            setLinkToBill(!!transaction.payableBillId);
         }
     }, [transaction]);
-    
-    useEffect(() => {
-        if (formState.type === 'expense' && linkToBill) {
-            getPayableBillsForLinking().then(setAvailableBills);
-        }
-    }, [formState.type, linkToBill]);
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
@@ -548,6 +539,7 @@ export const TransactionFormPage: React.FC<{
         setIsSubmitting(true);
         try {
             let warningMessage: string | undefined;
+            let finalTransactionId = transactionId;
             const dataToSave = { ...formState, date: new Date(formState.date + 'T12:00:00Z').toISOString() };
             
             if (isEdit && transaction) {
@@ -555,7 +547,7 @@ export const TransactionFormPage: React.FC<{
                     const { warning } = await updateTransactionAndPaymentLink(transaction.id, dataToSave, paymentLink);
                     warningMessage = warning;
                 } else {
-                    const { warning } = await transactionsApi.update(transaction.id, dataToSave);
+                    const { data, warning } = await transactionsApi.update(transaction.id, dataToSave);
                     warningMessage = warning;
                 }
             } else {
@@ -566,9 +558,14 @@ export const TransactionFormPage: React.FC<{
                     );
                     warningMessage = warning;
                 } else {
-                    const { warning } = await transactionsApi.add(dataToSave);
+                    const { data, warning } = await transactionsApi.add(dataToSave);
+                    finalTransactionId = data.id;
                     warningMessage = warning;
                 }
+            }
+
+            if (selectedBillId && finalTransactionId && selectedBillId !== transaction?.payableBillId) {
+                await linkExpenseToBill(selectedBillId, finalTransactionId);
             }
 
             const action = isEdit ? 'atualizada' : 'adicionada';
@@ -588,16 +585,6 @@ export const TransactionFormPage: React.FC<{
         }
     };
     
-    useEffect(() => {
-        if (formState.payableBillId) {
-            const bill = availableBills.find(b => b.id === formState.payableBillId);
-            if(bill) {
-                setFormState(f => ({ ...f, description: bill.description, amount: bill.amount, categoryId: bill.categoryId, payeeId: bill.payeeId }));
-                setAmountStr(formatCurrencyForInput(bill.amount));
-            }
-        }
-    }, [formState.payableBillId, availableBills]);
-
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     if (error) {
@@ -622,6 +609,7 @@ export const TransactionFormPage: React.FC<{
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
     const filteredCategories = data.categories.filter((c: Category) => c.type === formState.type || c.type === 'both');
+    const linkedBill = transaction?.payableBillId ? data.allPayableBills.find((b: PayableBill) => b.id === transaction.payableBillId) : null;
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
@@ -639,17 +627,15 @@ export const TransactionFormPage: React.FC<{
                 </div>
 
                 {formState.type === 'expense' && (
-                    <div className="space-y-2 pt-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={linkToBill} onChange={e => setLinkToBill(e.target.checked)} className="h-4 w-4 rounded border-border dark:border-dark-border text-primary focus:ring-primary" />
-                            <span className="text-sm font-medium">Vincular a uma conta a pagar</span>
-                        </label>
-                        {linkToBill && (
-                            <div>
-                                <select value={formState.payableBillId} onChange={e => setFormState(f => ({...f, payableBillId: e.target.value}))} className={inputClass}>
-                                    <option value="">Selecione uma conta...</option>
-                                    {availableBills.map(b => <option key={b.id} value={b.id}>{b.description} - {formatCurrency(b.amount)}</option>)}
-                                </select>
+                    <div className="space-y-2 pt-2 border-t border-border/50 dark:border-dark-border/50 mt-2">
+                        <label className={labelClass}>Vincular a uma conta</label>
+                        <select value={selectedBillId} onChange={e => setSelectedBillId(e.target.value)} className={inputClass} disabled={!!transaction?.payableBillId}>
+                            <option value="">Nenhuma...</option>
+                            {availableBills.map(b => <option key={b.id} value={b.id}>{b.description} - {formatCurrency(b.amount)}</option>)}
+                        </select>
+                        {linkedBill && (
+                             <div className="text-xs text-muted-foreground mt-1 p-2 bg-muted dark:bg-dark-muted rounded-md">
+                                 Vinculado à conta: <span className="font-semibold">{linkedBill.description}</span>. As alterações serão sincronizadas.
                             </div>
                         )}
                     </div>
@@ -678,7 +664,7 @@ export const TransactionFormPage: React.FC<{
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div><label className={labelClass}>Conta</label><select value={formState.accountId} onChange={e => setFormState(f => ({ ...f, accountId: e.target.value }))} required className={inputClass}><option value="">Selecione...</option>{data.accounts.map((a: Account) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} disabled={linkToBill && !!formState.payableBillId} onChange={e => setFormState(f => ({ ...f, categoryId: e.target.value }))} required className={inputClass}><option value="">Selecione...</option>{filteredCategories.map((c: Category) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} disabled={!!selectedBillId} onChange={e => setFormState(f => ({ ...f, categoryId: e.target.value }))} required className={inputClass}><option value="">Selecione...</option>{filteredCategories.map((c: Category) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                 </div>
 
                 <div>

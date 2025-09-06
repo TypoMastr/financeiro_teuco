@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, PayableBill, Payee, Category, Account, Transaction } from '../types';
 // FIX: Added `addPayableBill` to the import list to resolve the module error.
-import { payableBillsApi, payeesApi, categoriesApi, accountsApi, addPayableBill, payBill, getUnlinkedExpenses, linkExpenseToBill } from '../services/api';
+import { payableBillsApi, payeesApi, categoriesApi, accountsApi, addPayableBill, payBill, getUnlinkedExpenses, linkExpenseToBill, transactionsApi } from '../services/api';
 import { PlusCircle, Edit, Trash, DollarSign, Search, ClipboardList, Repeat, Paperclip, X as XIcon, ArrowLeft, ClipboardPaste } from './Icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
@@ -181,10 +181,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                     <div className="flex items-center gap-2 mt-1">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text}`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
                         <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `Pago em ${formatDate(bill.paidDate!)}` : `Vence em ${formatDate(bill.dueDate)}`}</span>
-                        {/* FIX: Replaced title prop with a wrapping span to provide a tooltip, as the Icon component does not accept a 'title' prop. */}
                         {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
-                        {/* FIX: Replaced title prop with a wrapping span to provide a tooltip, as the Icon component does not accept a 'title' prop. */}
-                        {bill.attachmentUrl && <span title="Possui anexo"><Paperclip className="h-3 w-3 text-muted-foreground"/></span>}
                     </div>
                 </div>
                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
@@ -193,9 +190,12 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                         {formatCurrency(bill.amount)}
                      </p>
                     <div className="flex gap-2 justify-end">
+                        {bill.status === 'paid' && bill.attachmentUrl && (
+                             <button onClick={() => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView })} className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Paperclip className="h-5 w-5"/></button>
+                        )}
                         {bill.status !== 'paid' && <button onClick={() => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView })} className="bg-primary text-primary-foreground text-sm font-semibold py-2 px-4 rounded-md">Pagar</button>}
-                        <button onClick={() => setView({ name: 'bill-form', billId: bill.id, returnView: currentView })} className="p-2 text-muted-foreground hover:text-primary rounded-md bg-card dark:bg-dark-card"><Edit className="h-4 w-4"/></button>
-                        <button onClick={() => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView })} className="p-2 text-muted-foreground hover:text-danger rounded-md bg-card dark:bg-dark-card"><Trash className="h-4 w-4"/></button>
+                        <button onClick={() => setView({ name: 'bill-form', billId: bill.id, returnView: currentView })} className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Edit className="h-5 w-5"/></button>
+                        <button onClick={() => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView })} className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-danger shadow-sm border border-border dark:border-dark-border hover:border-destructive"><Trash className="h-5 w-5"/></button>
                     </div>
                 </div>
             </motion.div>
@@ -276,29 +276,35 @@ export const BillFormPage: React.FC<{
     const { billId, returnView } = viewState as { name: 'bill-form', billId?: string, returnView: ViewState };
     const isEdit = !!billId;
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<{ payees: Payee[], categories: Category[] }>({ payees: [], categories: [] });
+    const [bill, setBill] = useState<PayableBill | null>(null);
+    const [data, setData] = useState<{ payees: Payee[], categories: Category[], unlinkedExpenses: Transaction[] }>({ payees: [], categories: [], unlinkedExpenses: [] });
     const toast = useToast();
     const [formState, setFormState] = useState({
         description: '', payeeId: '', categoryId: '', amount: 0, firstDueDate: new Date().toISOString().slice(0, 10),
-        notes: '', paymentType: 'single' as 'single' | 'installments' | 'monthly', installments: 2, isEstimate: false
+        notes: '', paymentType: 'single' as 'single' | 'installments' | 'monthly', installments: 2, isEstimate: false,
+        attachmentUrl: '', attachmentFilename: ''
     });
     const [amountStr, setAmountStr] = useState('R$ 0,00');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [linkedExpenseId, setLinkedExpenseId] = useState('');
 
     useEffect(() => {
         const loadData = async () => {
-            const [payees, categories, allBills] = await Promise.all([payeesApi.getAll(), categoriesApi.getAll(), isEdit ? payableBillsApi.getAll() : []]);
-            setData({ payees, categories: categories.filter(c => c.type === 'expense' || c.type === 'both') });
+            const [payees, categories, allBills, expenses] = await Promise.all([payeesApi.getAll(), categoriesApi.getAll(), isEdit ? payableBillsApi.getAll() : [], getUnlinkedExpenses()]);
+            setData({ payees, categories: categories.filter(c => c.type === 'expense' || c.type === 'both'), unlinkedExpenses: expenses });
             if (isEdit && billId) {
-                const bill = allBills.find(b => b.id === billId);
-                if (bill) {
+                const currentBill = allBills.find(b => b.id === billId);
+                if (currentBill) {
+                    setBill(currentBill);
                     setFormState({
-                        description: bill.description, payeeId: bill.payeeId, categoryId: bill.categoryId,
-                        amount: bill.amount, firstDueDate: bill.dueDate.slice(0, 10), notes: bill.notes || '',
-                        paymentType: bill.installmentInfo ? 'installments' : (bill.recurringId ? 'monthly' : 'single'),
-                        installments: bill.installmentInfo?.total || 2, isEstimate: bill.isEstimate || false,
+                        description: currentBill.description, payeeId: currentBill.payeeId, categoryId: currentBill.categoryId,
+                        amount: currentBill.amount, firstDueDate: currentBill.dueDate.slice(0, 10), notes: currentBill.notes || '',
+                        paymentType: currentBill.installmentInfo ? 'installments' : (currentBill.recurringId ? 'monthly' : 'single'),
+                        installments: currentBill.installmentInfo?.total || 2, isEstimate: currentBill.isEstimate || false,
+                        attachmentUrl: currentBill.attachmentUrl || '', attachmentFilename: currentBill.attachmentFilename || ''
                     });
-                    setAmountStr(formatCurrencyForInput(bill.amount));
+                    setAmountStr(formatCurrencyForInput(currentBill.amount));
                 }
             }
             setLoading(false);
@@ -312,11 +318,25 @@ export const BillFormPage: React.FC<{
         setFormState(prev => ({ ...prev, amount: numericValue }));
         setAmountStr(formatCurrencyForInput(numericValue));
     };
+    
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setFormState(prev => ({ ...prev, attachmentUrl: URL.createObjectURL(file), attachmentFilename: file.name }));
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
+             if (isEdit && billId && linkedExpenseId) {
+                await linkExpenseToBill(billId, linkedExpenseId);
+                toast.success('Conta vinculada com sucesso!');
+                setView(returnView);
+                return;
+            }
+
             if (isEdit && billId) {
                 const { isEstimate, notes, firstDueDate, paymentType, installments, ...restOfState } = formState;
 
@@ -328,9 +348,12 @@ export const BillFormPage: React.FC<{
                     ...restOfState,
                     dueDate: firstDueDate,
                     notes: finalNotes,
+                    isEstimate: isEstimate
                 };
                 
-                await payableBillsApi.update(billId, payload);
+                const { data: updatedBill, warning } = await payableBillsApi.update(billId, payload);
+                if (warning) toast.info(warning);
+
             } else {
                 await addPayableBill(formState);
             }
@@ -353,28 +376,41 @@ export const BillFormPage: React.FC<{
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
             <PageHeader title={isEdit ? "Editar Conta" : "Nova Conta a Pagar"} onBack={() => setView(returnView)} />
             <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
-                <div><label className={labelClass}>Descrição</label><input type="text" value={formState.description} onChange={e => setFormState(f => ({...f, description: e.target.value}))} required className={inputClass}/></div>
+                {isEdit && bill?.status === 'paid' && !bill.transactionId && (
+                     <div className="p-4 bg-warning/10 rounded-lg space-y-2">
+                        <p className="text-sm font-semibold text-warning/80">Esta conta está paga mas não foi vinculada a nenhuma despesa.</p>
+                        <div><label className={labelClass}>Vincular à despesa existente</label>
+                            <select value={linkedExpenseId} onChange={e => setLinkedExpenseId(e.target.value)} className={inputClass}>
+                                <option value="">Selecione uma despesa...</option>
+                                {data.unlinkedExpenses.map(t => <option key={t.id} value={t.id}>{formatDate(t.date)} - {t.description} - {formatCurrency(t.amount)}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                )}
+
+                <div><label className={labelClass}>Descrição</label><input type="text" value={formState.description} onChange={e => setFormState(f => ({...f, description: e.target.value}))} required className={inputClass} disabled={!!linkedExpenseId}/></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Beneficiário</label><select value={formState.payeeId} onChange={e => setFormState(f => ({...f, payeeId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} onChange={e => setFormState(f => ({...f, categoryId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                    <div><label className={labelClass}>Beneficiário</label><select value={formState.payeeId} onChange={e => setFormState(f => ({...f, payeeId: e.target.value}))} required className={inputClass} disabled={!!linkedExpenseId}><option value="">Selecione...</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} onChange={e => setFormState(f => ({...f, categoryId: e.target.value}))} required className={inputClass} disabled={!!linkedExpenseId}><option value="">Selecione...</option>{data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass} /></div>
+                    <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass} disabled={!!linkedExpenseId}/></div>
                     <DateField id="firstDueDate" label={isEdit ? "Vencimento" : "1º Vencimento"} value={formState.firstDueDate} onChange={date => setFormState(f => ({ ...f, firstDueDate: date }))} required />
                 </div>
 
                 <div className="flex items-center gap-2 pt-2">
-                    <input
-                        type="checkbox"
-                        id="isEstimate"
-                        checked={formState.isEstimate}
-                        onChange={e => setFormState(f => ({ ...f, isEstimate: e.target.checked }))}
-                        className="h-4 w-4 rounded border-border dark:border-dark-border text-primary focus:ring-primary"
-                    />
-                    <label htmlFor="isEstimate" className="text-sm font-medium text-muted-foreground">
-                        Este valor é uma estimativa
-                    </label>
+                    <input type="checkbox" id="isEstimate" checked={formState.isEstimate} onChange={e => setFormState(f => ({ ...f, isEstimate: e.target.checked }))} className="h-4 w-4 rounded border-border dark:border-dark-border text-primary focus:ring-primary" disabled={!!linkedExpenseId}/>
+                    <label htmlFor="isEstimate" className="text-sm font-medium text-muted-foreground">Este valor é uma estimativa</label>
                 </div>
+
+                {isEdit && bill?.status === 'paid' && (
+                    <div><label className={labelClass}>Anexo</label>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`${inputClass} text-left ${formState.attachmentFilename ? 'text-primary' : 'text-muted-foreground'} flex items-center gap-2`}>
+                            <Paperclip className="h-4 w-4" />{formState.attachmentFilename || 'Escolher arquivo...'}
+                        </button>
+                    </div>
+                )}
 
                 {!isEdit && (
                     <div>
@@ -386,14 +422,13 @@ export const BillFormPage: React.FC<{
                         </div>
                     </div>
                 )}
-
                 {formState.paymentType === 'installments' && !isEdit && (
                     <div><label className={labelClass}>Número de Parcelas</label><input type="number" value={formState.installments} min="2" onChange={e => setFormState(f => ({...f, installments: parseInt(e.target.value)}))} className={inputClass}/></div>
                 )}
 
-                <div><label className={labelClass}>Notas</label><textarea value={formState.notes} onChange={e => setFormState(f => ({...f, notes: e.target.value}))} className={inputClass} rows={2}/></div>
+                <div><label className={labelClass}>Notas</label><textarea value={formState.notes} onChange={e => setFormState(f => ({...f, notes: e.target.value}))} className={inputClass} rows={2} disabled={!!linkedExpenseId}/></div>
             </div>
-            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
+            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text={linkedExpenseId ? 'Salvar e Vincular' : 'Salvar'} /></div>
         </form>
     );
 };
@@ -413,6 +448,7 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
     const [formState, setFormState] = useState({
         accountId: '', paidAmount: 0, paymentDate: new Date().toISOString().slice(0, 10), attachmentUrl: '', attachmentFilename: ''
     });
+    const [amountStr, setAmountStr] = useState('R$ 0,00');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
@@ -422,13 +458,23 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
             setBill(currentBill || null);
             setAccounts(accs);
             setUnlinkedExpenses(expenses);
-            if (currentBill) setFormState(f => ({...f, paidAmount: currentBill.amount}));
+            if (currentBill) {
+                setFormState(f => ({...f, paidAmount: currentBill.amount}));
+                setAmountStr(formatCurrencyForInput(currentBill.amount));
+            }
             if (accs.length > 0) setFormState(f => ({...f, accountId: accs[0].id}));
             setLoading(false);
         };
         loadData();
     }, [billId]);
     
+    const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        const numericValue = parseCurrencyFromInput(value);
+        setFormState(prev => ({ ...prev, paidAmount: numericValue }));
+        setAmountStr(formatCurrencyForInput(numericValue));
+    };
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -504,9 +550,10 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
                 {paymentType === 'new' ? (
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div><label className={labelClass}>Conta de Origem</label><select value={formState.accountId} onChange={e => setFormState(f => ({...f, accountId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+                            <div><label className={labelClass}>Valor Pago</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass} /></div>
                             <DateField id="paymentDate" label="Data do Pagamento" value={formState.paymentDate} onChange={date => setFormState(f => ({ ...f, paymentDate: date }))} required />
                         </div>
+                         <div><label className={labelClass}>Conta de Origem</label><select value={formState.accountId} onChange={e => setFormState(f => ({...f, accountId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
                         <div>
                             <label className={labelClass}>Anexo</label>
                             <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />

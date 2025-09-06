@@ -707,6 +707,24 @@ export const transactionsApi = {
         const lookupData = await getLookupData();
         const description = generateDetailedUpdateMessage(oldData, data, 'Transação', data.description, lookupData);
         await addLogEntry(description, 'update', 'transaction', oldData);
+
+        // --- SYNC TO BILL ---
+        if (data.payable_bill_id) {
+            const billUpdatePayload = {
+                description: data.description,
+                amount: data.amount,
+                category_id: data.category_id,
+                payee_id: data.payee_id,
+                attachment_url: data.attachment_url,
+                attachment_filename: data.attachment_filename,
+                notes: data.comments,
+                paid_date: data.date
+            };
+            const { error: billUpdateError } = await supabase.from('payable_bills').update(billUpdatePayload).eq('id', data.payable_bill_id);
+            if (billUpdateError) throw new Error("Falha ao sincronizar alteração com a conta a pagar.");
+        }
+        // --- END SYNC ---
+
         return { data: convertObjectKeys(data, toCamelCase), warning };
     },
     remove: async(transactionId: string): Promise<void> => {
@@ -743,10 +761,29 @@ export const payableBillsApi = {
         await addLogEntry(`Adicionada conta a pagar: "${data.description}" (Venc.: ${formattedDueDate})`, 'create', 'bill', {id: data.id});
         return convertObjectKeys(data, toCamelCase);
     },
-    update: async(billId: string, billData: Partial<Omit<PayableBill, 'id'>>): Promise<PayableBill> => {
+    update: async(billId: string, billData: Partial<Omit<PayableBill, 'id'>>): Promise<{ data: PayableBill, warning?: string }> => {
         const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
         if (findError) throw findError;
-        const { data, error } = await supabase.from('payable_bills').update(convertObjectKeys(billData, toSnakeCase)).eq('id', billId).select().single();
+
+        const finalBillData = { ...billData };
+        let warning: string | undefined;
+
+        if (finalBillData.attachmentUrl && finalBillData.attachmentUrl.startsWith('blob:') && finalBillData.attachmentFilename) {
+            const { url, error: uploadError } = await uploadAttachment(finalBillData.attachmentUrl, finalBillData.attachmentFilename);
+            if (uploadError) {
+                if (uploadError.message?.toLowerCase().includes('bucket not found')) {
+                    warning = 'O anexo não foi salvo. Erro de configuração de armazenamento (Bucket not found).';
+                    finalBillData.attachmentUrl = oldData.attachment_url || undefined;
+                    finalBillData.attachmentFilename = oldData.attachment_filename || undefined;
+                } else {
+                    throw uploadError;
+                }
+            } else {
+                finalBillData.attachmentUrl = url;
+            }
+        }
+        
+        const { data, error } = await supabase.from('payable_bills').update(convertObjectKeys(finalBillData, toSnakeCase)).eq('id', billId).select().single();
         if(error) throw error;
 
         const lookupData = await getLookupData();
@@ -754,7 +791,25 @@ export const payableBillsApi = {
         const entityName = `${data.description} (Venc.: ${formattedDueDate})`;
         const description = generateDetailedUpdateMessage(oldData, data, 'Conta a Pagar', entityName, lookupData);
         await addLogEntry(description, 'update', 'bill', oldData);
-        return convertObjectKeys(data, toCamelCase);
+        
+        // --- SYNC TO TRANSACTION ---
+        if (data.transaction_id) {
+            const transactionUpdatePayload = {
+                description: data.description,
+                amount: data.amount,
+                category_id: data.category_id,
+                payee_id: data.payee_id,
+                attachment_url: data.attachment_url,
+                attachment_filename: data.attachment_filename,
+                comments: data.notes,
+                date: data.paid_date 
+            };
+            const { error: trxUpdateError } = await supabase.from('transactions').update(transactionUpdatePayload).eq('id', data.transaction_id);
+            if (trxUpdateError) throw new Error("Falha ao sincronizar alteração com a transação financeira.");
+        }
+        // --- END SYNC ---
+
+        return { data: convertObjectKeys(data, toCamelCase), warning };
     },
     remove: async(billId: string): Promise<void> => {
         const { data: oldData, error: findError } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
@@ -826,20 +881,42 @@ export async function payBill(billId: string, paymentData: { accountId: string, 
         attachmentFilename: paymentData.attachmentFilename 
     });
     
-    await payableBillsApi.update(billId, { status: 'paid', paidDate: transaction.date, transactionId: transaction.id, attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename });
+    await payableBillsApi.update(billId, { status: 'paid', paidDate: transaction.date, transactionId: transaction.id, amount: transaction.amount, attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename });
     return { warning };
 }
 
 export const getPayableBillsForLinking = async (): Promise<PayableBill[]> => {
-    const { data, error } = await supabase.from('payable_bills').select('*').in('status', ['pending', 'overdue']);
+    // Fetches bills that are 'pending', 'overdue', OR 'paid' but not yet linked to a transaction.
+    const { data, error } = await supabase
+        .from('payable_bills')
+        .select('*')
+        .or('status.in.(pending,overdue),and(status.eq.paid,transaction_id.is.null)');
+
     if (error) throw error;
     return convertObjectKeys(data, toCamelCase);
 };
 
 export const linkExpenseToBill = async (billId: string, transactionId: string) => {
-    const { data: trx } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
-    if(!trx) throw new Error("Transaction not found");
-    await payableBillsApi.update(billId, { status: 'paid', paidDate: trx.date, transactionId });
+    const { data: trxData, error: trxFindError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+    if (trxFindError || !trxData) throw new Error("Transaction not found");
+    const trx = convertObjectKeys(trxData, toCamelCase);
+
+    // Update the bill to be 'paid' and synced with the transaction's data
+    await payableBillsApi.update(billId, { 
+        status: 'paid', 
+        paidDate: trx.date, 
+        transactionId,
+        amount: trx.amount,
+        description: trx.description,
+        categoryId: trx.categoryId,
+        payeeId: trx.payeeId,
+        notes: trx.comments,
+        attachmentUrl: trx.attachmentUrl,
+        attachmentFilename: trx.attachmentFilename
+    });
+
+    // Update the transaction to be linked to the bill
+    await transactionsApi.update(transactionId, { payableBillId: billId });
 };
 
 export const getUnlinkedExpenses = async (): Promise<Transaction[]> => {
