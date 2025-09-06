@@ -167,4 +167,5 @@ export type ViewState =
   | { name: 'delete-bill-confirmation', billId: string, returnView: ViewState }
   | { name: 'attachment-view', attachmentUrl: string, returnView: ViewState }
   | { name: 'batch-transaction-form', returnView: ViewState }
-  | { name: 'ofx-import-form', returnView: ViewState };
+  | { name: 'ofx-import-form', returnView: ViewState }
+  | { name: 'chatbot' };

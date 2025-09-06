@@ -475,7 +475,7 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
 
         setIsSubmitting(true);
         try {
-            await addIncomeTransactionAndPayment(
+            const { warning } = await addIncomeTransactionAndPayment(
               { 
                 description: `Mensalidade ${member.name} - ${new Date(month + '-02').toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'})}`,
                 amount: member.monthlyFee,
@@ -490,11 +490,18 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
                 attachmentFilename: formState.attachmentFilename,
               }
             );
-            toast.success("Pagamento registrado com sucesso!");
+
+            if (warning) {
+                toast.success("Pagamento registrado, mas o anexo falhou.");
+                toast.info(warning);
+            } else {
+                toast.success("Pagamento registrado com sucesso!");
+            }
             setView(returnView);
         } catch (error: any) {
             console.error("Erro ao registrar pagamento:", error);
-            toast.error(error.message || "Falha ao registrar pagamento.");
+            toast.error(`Falha ao registrar pagamento: ${error.message}`);
+        } finally {
             setIsSubmitting(false);
         }
     };
@@ -655,16 +662,22 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
 
         setIsSubmitting(true);
         try {
-            await updatePaymentAndTransaction(
+            const { warning } = await updatePaymentAndTransaction(
                 paymentDetails.payment.id,
                 paymentDetails.transaction.id,
                 formState
             );
-            toast.success("Pagamento atualizado com sucesso!");
+            if (warning) {
+                toast.success("Pagamento atualizado, mas o anexo falhou.");
+                toast.info(warning);
+            } else {
+                toast.success("Pagamento atualizado com sucesso!");
+            }
             setView(returnView);
         } catch (error: any) {
             console.error("Erro ao atualizar pagamento:", error);
-            toast.error(error.message || "Falha ao atualizar pagamento.");
+            toast.error(`Falha ao atualizar pagamento: ${error.message}`);
+        } finally {
             setIsSubmitting(false);
         }
     };

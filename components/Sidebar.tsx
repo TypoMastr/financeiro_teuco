@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { ViewState } from '../types';
-import { Dashboard, Users, ClubLogo, DollarSign, Settings, ClipboardList, FileText, History } from './Icons';
+import { Dashboard, Users, ClubLogo, DollarSign, Settings, ClipboardList, FileText, History, MessageSquare } from './Icons';
 
 interface SidebarProps {
   currentViewName: ViewState['name'];
@@ -109,6 +109,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentViewName, setView }) =>
             icon={<History className="h-5 w-5" />}
             isActive={currentViewName === 'log'}
             onClick={() => setView({ name: 'log' })}
+          />
+           <NavItem
+            label="ChatGPTeuco"
+            icon={<MessageSquare className="h-5 w-5" />}
+            isActive={currentViewName === 'chatbot'}
+            onClick={() => setView({ name: 'chatbot' })}
           />
            <NavItem
             label="Ajustes"

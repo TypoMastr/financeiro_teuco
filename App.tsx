@@ -4,7 +4,8 @@ import { Members } from './components/Members';
 import MemberProfile, { PaymentFormPage, PaymentEditFormPage } from './components/MemberProfile';
 import MemberForm from './components/MemberForm';
 import PrintableReport from './components/PrintableReport';
-import Financial, { TransactionFormPage, ReportFiltersPage, FutureIncomePage } from './components/Financial';
+// FIX: Corrected import to be a named import as Financial is not exported by default, and added FutureIncomePage.
+import { Financial, TransactionFormPage, ReportFiltersPage, FutureIncomePage } from './components/Financial';
 import { Settings, SettingsItemFormPage, SettingsListPage } from './components/Settings';
 import FinancialDetail from './components/FinancialDetail';
 import { TransactionHistory } from './components/TransactionHistory';
@@ -23,6 +24,7 @@ import { ToastProvider, ToastContainer } from './components/Notifications';
 import { BatchTransactionFormPage, OfxImportFormPage } from './components/BatchOperations';
 import { LogPage } from './components/LogPage';
 import { LockScreen } from './components/LockScreen';
+import { Chatbot } from './components/Chatbot';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
@@ -97,6 +99,8 @@ const App: React.FC = () => {
           return <BatchTransactionFormPage viewState={view} setView={setView} />;
       case 'ofx-import-form':
           return <OfxImportFormPage viewState={view} setView={setView} />;
+      case 'chatbot':
+          return <Chatbot setView={setView} />;
 
       default:
         return <Overview setView={setView}/>;
@@ -150,7 +154,7 @@ const App: React.FC = () => {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
-                  className="w-full max-w-7xl mx-auto"
+                  className="w-full h-full"
                   {...animationProps}
                 >
                   {renderView()}

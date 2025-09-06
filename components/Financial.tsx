@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, Account, Transaction, Category, Payee, Tag, Member, Project, PayableBill, Payment } from '../types';
 // FIX: Removed unused 'linkTransactionToPayment' import which caused an error.
-import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink } from '../services/api';
+import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink, payableBillsApi } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { DollarSign, FileSearch, PlusCircle, Paperclip, X as XIcon, Briefcase, Tag as TagIcon, ArrowLeft, Search, TrendingUp, ChevronRight, Layers, UploadCloud, ClipboardPaste } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
@@ -10,7 +10,12 @@ import { useToast } from './Notifications';
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const formatDate = (date: string) => new Date(date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'Data Inválida';
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T12:00:00Z');
+    if (isNaN(date.getTime())) return 'Data Inválida';
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 
 const formatCurrencyForInput = (value: number): string => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -181,7 +186,7 @@ const MemberSearchableSelect: React.FC<{
 };
 
 // --- Main Component ---
-const Financial: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
+export const Financial: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
     const { componentState } = viewState as { name: 'financial', componentState?: any };
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<any>({ accounts: [], transactions: [], categories: [], payees: [], tags: [], projects: [], members: [] });
@@ -382,7 +387,7 @@ export const TransactionFormPage: React.FC<{
     const isEdit = !!transactionId;
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [] });
+    const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [], payableBills: [] });
     const [transaction, setTransaction] = useState<Transaction | undefined>(undefined);
     const toast = useToast();
     
@@ -420,8 +425,8 @@ export const TransactionFormPage: React.FC<{
     
         const loadAllData = async () => {
             try {
-                const [cats, pys, tgs, projs, accs, membs, allTransactions] = await Promise.all([
-                    categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll()
+                const [cats, pys, tgs, projs, accs, membs, allTransactions, allBills] = await Promise.all([
+                    categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll(), payableBillsApi.getAll()
                 ]);
     
                 if (isCancelled) return;
@@ -431,6 +436,12 @@ export const TransactionFormPage: React.FC<{
                     if (!trx) {
                         throw new Error("Transação não encontrada.");
                     }
+                    
+                    const linkedBill = allBills.find(b => b.transactionId === transactionId);
+                    if (linkedBill) {
+                        trx.payableBillId = linkedBill.id;
+                    }
+                    
                     setTransaction(trx);
                     if (trx.type === 'income') {
                         const payment = await getPaymentByTransactionId(trx.id);
@@ -441,7 +452,7 @@ export const TransactionFormPage: React.FC<{
                         }
                     }
                 }
-                setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs });
+                setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs, payableBills: allBills });
             } catch (err: any) {
                 if (isCancelled) return;
                 console.error("Falha ao carregar dados da transação:", err);
@@ -536,30 +547,43 @@ export const TransactionFormPage: React.FC<{
         e.preventDefault();
         setIsSubmitting(true);
         try {
+            let warningMessage: string | undefined;
             const dataToSave = { ...formState, date: new Date(formState.date + 'T12:00:00Z').toISOString() };
             
             if (isEdit && transaction) {
                  if (paymentLink) {
-                    await updateTransactionAndPaymentLink(transaction.id, dataToSave, paymentLink);
+                    const { warning } = await updateTransactionAndPaymentLink(transaction.id, dataToSave, paymentLink);
+                    warningMessage = warning;
                 } else {
-                    await transactionsApi.update(transaction.id, dataToSave);
+                    const { warning } = await transactionsApi.update(transaction.id, dataToSave);
+                    warningMessage = warning;
                 }
             } else {
                  if (formState.type === 'income' && showPaymentLinkUI && paymentLink) {
-                    // FIX: Removed `accountId` from the paymentLink spread, as it belongs to transaction data.
-                    await addIncomeTransactionAndPayment(
+                    const { warning } = await addIncomeTransactionAndPayment(
                         dataToSave,
                         { ...paymentLink, attachmentUrl: formState.attachmentUrl, attachmentFilename: formState.attachmentFilename }
                     );
+                    warningMessage = warning;
                 } else {
-                    await transactionsApi.add(dataToSave);
+                    const { warning } = await transactionsApi.add(dataToSave);
+                    warningMessage = warning;
                 }
             }
-            toast.success(`Transação ${isEdit ? 'atualizada' : 'adicionada'} com sucesso!`);
+
+            const action = isEdit ? 'atualizada' : 'adicionada';
+            if (warningMessage) {
+                toast.success(`Transação ${action}, mas o anexo falhou.`);
+                toast.info(warningMessage);
+            } else {
+                toast.success(`Transação ${action} com sucesso!`);
+            }
             setView(returnView);
-        } catch (error) {
+
+        } catch (error: any) {
             console.error("Failed to save transaction:", error);
-            toast.error("Falha ao salvar transação.");
+            toast.error(`Falha ao salvar transação: ${error.message}`);
+        } finally {
             setIsSubmitting(false);
         }
     };
@@ -691,109 +715,159 @@ export const TransactionFormPage: React.FC<{
 export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
     const { returnView = { name: 'financial' } } = viewState as { name: 'financial-report-form', returnView?: ViewState };
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<any>({ categories: [], tags: [], payees: [], projects: [], accounts: [] });
-    const [filters, setFilters] = useState({ type: '', categoryId: '', payeeId: '', tagIds: [] as string[], projectId: '', accountIds: [] as string[], startDate: '', endDate: '' });
+    const [data, setData] = useState<any>({ accounts: [], categories: [], payees: [], tags: [], projects: [] });
+    const toast = useToast();
+    const [filters, setFilters] = useState({
+        startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
+        endDate: new Date().toISOString().slice(0, 10),
+        accountIds: [] as string[],
+        type: '' as 'income' | 'expense' | '',
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         const loadData = async () => {
-            const [cats, tgs, pys, projs, accs] = await Promise.all([categoriesApi.getAll(), tagsApi.getAll(), payeesApi.getAll(), projectsApi.getAll(), accountsApi.getAll()]);
-            setData({ categories: cats, tags: tgs, payees: pys, projects: projs, accounts: accs });
+            setLoading(true);
+            const [accs, cats, pys, tgs, projs] = await Promise.all([
+                accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll()
+            ]);
+            setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs });
+            setFilters(f => ({ ...f, accountIds: accs.map(a => a.id) }));
             setLoading(false);
         };
         loadData();
     }, []);
 
-    const handleGenerate = async () => {
-        const activeFilters = Object.entries(filters).reduce((acc, [key, value]) => { if (value && (!Array.isArray(value) || value.length > 0)) (acc as any)[key] = value; return acc; }, {} as any);
-        const reportData = await getFinancialReport(activeFilters);
-        setView({
-            name: 'report-view', report: { type: 'financial', data: { transactions: reportData, allData: { categories: data.categories, payees: data.payees, tags: data.tags, accounts: data.accounts, projects: data.projects } }, generatedAt: new Date().toISOString(), title: "Relatório Financeiro Personalizado" }
-        });
-    };
-
-    const handleMultiSelectChange = (field: 'accountIds' | 'tagIds', value: string) => {
-        setFilters(f => {
-            const currentValues = f[field] as string[];
-            const newValues = currentValues.includes(value) ? currentValues.filter(id => id !== value) : [...currentValues, value];
-            return { ...f, [field]: newValues };
-        });
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        try {
+            const reportData = await getFinancialReport(filters);
+            setView({
+                name: 'report-view',
+                report: {
+                    type: 'financial',
+                    data: {
+                        transactions: reportData,
+                        allData: data,
+                    },
+                    generatedAt: new Date().toISOString(),
+                    title: 'Relatório Financeiro Personalizado'
+                }
+            });
+        } catch (err) {
+            toast.error("Erro ao gerar relatório.");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
     
-    const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+    const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
 
     return (
-        <div className="space-y-6 max-w-lg mx-auto">
-            <PageHeader title="Gerar Relatório" onBack={() => setView(returnView)} />
+        <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
+            <PageHeader title="Gerar Relatório Financeiro" onBack={() => setView(returnView)} />
             <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <DateField id="startDate" label="Data Início" value={filters.startDate} onChange={date => setFilters(f=>({...f, startDate: date}))}/>
-                    <DateField id="endDate" label="Data Fim" value={filters.endDate} onChange={date => setFilters(f=>({...f, endDate: date}))}/>
+                    <DateField id="startDate" label="Data de Início" value={filters.startDate} onChange={date => setFilters(f => ({...f, startDate: date}))} required />
+                    <DateField id="endDate" label="Data de Fim" value={filters.endDate} onChange={date => setFilters(f => ({...f, endDate: date}))} required />
                 </div>
-                 <div><label className={labelClass}>Tipo</label><select className={inputClass} value={filters.type} onChange={e => setFilters(f=>({...f, type: e.target.value}))}><option value="">Todos</option><option value="income">Receitas</option><option value="expense">Despesas</option></select></div>
-                <div><label className={labelClass}>Categoria</label><select className={inputClass} value={filters.categoryId} onChange={e => setFilters(f=>({...f, categoryId: e.target.value}))}><option value="">Todas</option>{data.categories.map((c: Category) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                <div><label className={labelClass}>Projeto</label><select className={inputClass} value={filters.projectId} onChange={e => setFilters(f => ({ ...f, projectId: e.target.value }))}><option value="">Todos</option>{data.projects.map((p: Project) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-                
                 <div>
-                  <label className={labelClass}>Contas</label>
-                  <div className="flex flex-wrap gap-2 p-2 bg-background dark:bg-dark-background rounded-lg border border-border dark:border-dark-border">
-                    {data.accounts.map((acc: Account) => (
-                      <button key={acc.id} type="button" onClick={() => handleMultiSelectChange('accountIds', acc.id)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${filters.accountIds.includes(acc.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted border-border dark:border-dark-border'}`}>
-                        {acc.name}
-                      </button>
-                    ))}
-                  </div>
+                    <label className={labelClass}>Contas</label>
+                    <select
+                        multiple
+                        value={filters.accountIds}
+                        onChange={e => setFilters(f => ({...f, accountIds: Array.from(e.target.selectedOptions, option => option.value)}))}
+                        className={`${inputClass} h-32`}
+                    >
+                        {data.accounts.map((acc: Account) => (
+                            <option key={acc.id} value={acc.id}>{acc.name}</option>
+                        ))}
+                    </select>
                 </div>
                  <div>
-                  <label className={labelClass}>Tags</label>
-                  <div className="flex flex-wrap gap-2 p-2 bg-background dark:bg-dark-background rounded-lg border border-border dark:border-dark-border">
-                    {data.tags.map((tag: Tag) => (
-                      <button key={tag.id} type="button" onClick={() => handleMultiSelectChange('tagIds', tag.id)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${filters.tagIds.includes(tag.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted border-border dark:border-dark-border'}`}>
-                        {tag.name}
-                      </button>
-                    ))}
-                  </div>
+                    <label className={labelClass}>Tipo de Transação</label>
+                    <select value={filters.type} onChange={e => setFilters(f => ({...f, type: e.target.value as any}))} className={inputClass}>
+                        <option value="">Todos</option>
+                        <option value="income">Receitas</option>
+                        <option value="expense">Despesas</option>
+                    </select>
                 </div>
             </div>
-            <div className="flex justify-center"><button onClick={handleGenerate} className="bg-primary text-primary-foreground font-semibold py-2.5 px-6 rounded-md hover:opacity-90 transition-opacity">Gerar Relatório</button></div>
-        </div>
+            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Gerar Relatório" /></div>
+        </form>
     );
 };
 
 export const FutureIncomePage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
     const { returnView = { name: 'financial' } } = viewState as { name: 'future-income-view', returnView?: ViewState };
-    const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<{ categories: Category[], payees: Payee[] }>({ categories: [], payees: [] });
+    const toast = useToast();
 
     useEffect(() => {
-        getFutureIncomeTransactions().then(data => {
-            setTransactions(data);
-            setLoading(false);
-        });
-    }, []);
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+                const [trxs, cats, pys] = await Promise.all([
+                    getFutureIncomeTransactions(),
+                    categoriesApi.getAll(),
+                    payeesApi.getAll()
+                ]);
+                setTransactions(trxs);
+                setData({ categories: cats, payees: pys });
+            } catch (error) {
+                console.error("Error fetching future income:", error);
+                toast.error("Erro ao carregar previsão de receitas.");
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [toast]);
+
+    const categoryMap = useMemo(() => new Map(data.categories.map(c => [c.id, c.name])), [data.categories]);
+
+    if (loading) {
+        return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+    }
 
     return (
-        <div className="space-y-6 max-w-lg mx-auto">
+        <div className="space-y-6 max-w-2xl mx-auto">
             <PageHeader title="Previsão de Receitas" onBack={() => setView(returnView)} />
-            <div className="bg-card dark:bg-dark-card p-4 sm:p-6 rounded-lg border border-border dark:border-dark-border">
-             {loading ? <div className="h-40 rounded-lg bg-muted animate-pulse"></div> : (
-                <div className="space-y-2">
-                    {transactions.length > 0 ? transactions.map(trx => (
-                        <div key={trx.id} onClick={() => setView({ name: 'transaction-form', transactionId: trx.id, returnView: { name: 'future-income-view', returnView } })} className="p-3 rounded-md bg-muted/50 dark:bg-dark-muted/50 cursor-pointer hover:bg-muted dark:hover:bg-dark-muted transition-colors">
-                            <div className="flex justify-between items-center">
-                                <p className="font-semibold">{trx.description}</p>
-                                <p className="font-bold text-lg text-success">{formatCurrency(trx.amount)}</p>
+            {transactions.length > 0 ? (
+                <div className="space-y-3">
+                    {transactions.map(trx => (
+                        <motion.div
+                            key={trx.id}
+                            layout
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0 }}
+                            className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <p className="font-semibold text-foreground dark:text-dark-foreground">{trx.description}</p>
+                                    <p className="text-sm text-muted-foreground">{categoryMap.get(trx.categoryId) || 'N/A'}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-bold text-success">{formatCurrency(trx.amount)}</p>
+                                    <p className="text-xs text-muted-foreground">em {formatDate(trx.date)}</p>
+                                </div>
                             </div>
-                            <p className="text-xs text-muted-foreground">Previsto para: {formatDate(trx.date)}</p>
-                        </div>
-                    )) : <p className="text-center text-sm text-muted-foreground p-4">Nenhuma receita futura encontrada.</p>}
+                        </motion.div>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-20 text-muted-foreground">
+                    <p>Nenhuma receita futura encontrada.</p>
                 </div>
             )}
-            </div>
         </div>
     );
 };
-
-export default Financial;

@@ -10,7 +10,14 @@ import { useToast } from './Notifications';
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const formatDate = (date: string) => new Date(date + 'T12:00:00Z').toLocaleDateString('pt-BR');
+const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'Data inválida';
+    // If it's a date-only string, append time to avoid timezone issues.
+    // Otherwise, assume it's a full ISO string that Date can parse.
+    const date = new Date(dateString.includes('T') ? dateString : dateString + 'T12:00:00Z');
+    if (isNaN(date.getTime())) return 'Data inválida';
+    return date.toLocaleDateString('pt-BR');
+};
 
 const formatCurrencyForInput = (value: number): string => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -331,26 +338,8 @@ export const BillFormPage: React.FC<{
             setView(returnView);
         } catch (error: any) {
             console.error("Failed to save bill:", error);
-            let message = "Ocorreu um erro desconhecido.";
-            if (error instanceof Error) {
-                message = error.message;
-            } else if (error && typeof error.message === 'string' && error.message.trim()) {
-                message = error.message;
-            } else if (error && typeof error.details === 'string' && error.details.trim()) {
-                message = error.details;
-            } else if (typeof error === 'string' && error.trim()) {
-                message = error;
-            } else {
-                try {
-                    const errorString = JSON.stringify(error);
-                    if (errorString !== '{}') {
-                       message = errorString;
-                    }
-                } catch (e) {
-                    // Could not stringify, stick with default message
-                }
-            }
-            toast.error(`Falha ao salvar conta: ${message}`);
+            toast.error(`Falha ao salvar conta: ${error.message}`);
+        } finally {
             setIsSubmitting(false);
         }
     };
@@ -470,35 +459,25 @@ export const PayBillPage: React.FC<{ viewState: ViewState; setView: (view: ViewS
         e.preventDefault();
         setIsSubmitting(true);
         try {
+            let warningMessage: string | undefined;
             if (paymentType === 'new') {
-                await payBill(billId, formState);
+                const { warning } = await payBill(billId, formState);
+                warningMessage = warning;
             } else {
                 await linkExpenseToBill(billId, linkedExpenseId);
             }
-            toast.success("Conta paga com sucesso!");
+            
+            if (warningMessage) {
+                toast.success("Conta paga, mas o anexo falhou ao ser enviado.");
+                toast.info(warningMessage);
+            } else {
+                toast.success("Conta paga com sucesso!");
+            }
             setView(returnView);
         } catch (error: any) {
             console.error("Failed to pay bill:", error);
-            let message = "Ocorreu um erro desconhecido.";
-            if (error instanceof Error) {
-                message = error.message;
-            } else if (error && typeof error.message === 'string' && error.message.trim()) {
-                message = error.message;
-            } else if (error && typeof error.details === 'string' && error.details.trim()) {
-                message = error.details;
-            } else if (typeof error === 'string' && error.trim()) {
-                message = error;
-            } else {
-                try {
-                    const errorString = JSON.stringify(error);
-                    if (errorString !== '{}') {
-                       message = errorString;
-                    }
-                } catch (e) {
-                    // Could not stringify, stick with default message
-                }
-            }
-            toast.error(`Falha ao pagar conta: ${message}`);
+            toast.error(`Falha ao pagar conta: ${error.message}`);
+        } finally {
             setIsSubmitting(false);
         }
     };

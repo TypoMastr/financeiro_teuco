@@ -23,6 +23,20 @@ const convertObjectKeys = (obj: any, converter: (s: string) => string): any => {
     return obj;
 };
 
+const sanitizeFilenameForSupabase = (filename: string): string => {
+    // Decomposes accented characters into base characters and combining diacritical marks.
+    const normalized = filename.normalize('NFD');
+    // Removes the combining diacritical marks.
+    const withoutAccents = normalized.replace(/[\u0300-\u036f]/g, '');
+    // Replaces spaces and any remaining non-alphanumeric characters (except for dots, hyphens, and underscores) with underscores.
+    // Also collapses multiple consecutive underscores into a single one.
+    return withoutAccents
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .replace(/__+/g, '_');
+};
+
+
 // --- NEW HELPERS FOR DETAILED LOGGING ---
 interface LookupData {
     accounts: Map<string, string>;
@@ -196,20 +210,28 @@ const addLogEntry = async (description: string, actionType: ActionType, entityTy
 };
 
 // --- ATTACHMENT UPLOAD ---
-const uploadAttachment = async (attachmentUrl: string, attachmentFilename: string): Promise<string> => {
-    const response = await fetch(attachmentUrl);
-    const blob = await response.blob();
-    const file = new File([blob], attachmentFilename, { type: blob.type });
-    const filePath = `public/${Date.now()}-${attachmentFilename.replace(/\s/g, '_')}`;
-    
-    const { error: uploadError } = await supabase.storage.from('attachments').upload(filePath, file);
-    if (uploadError) {
-        console.error("Supabase storage upload error:", uploadError);
-        throw uploadError;
-    }
+const uploadAttachment = async (attachmentUrl: string, attachmentFilename: string): Promise<{ url?: string; error?: any }> => {
+    try {
+        const response = await fetch(attachmentUrl);
+        const blob = await response.blob();
+        
+        const sanitizedFilename = sanitizeFilenameForSupabase(attachmentFilename);
 
-    const { data } = supabase.storage.from('attachments').getPublicUrl(filePath);
-    return data.publicUrl;
+        const file = new File([blob], sanitizedFilename, { type: blob.type });
+        const filePath = `public/${Date.now()}-${sanitizedFilename}`;
+        
+        const { error: uploadError } = await supabase.storage.from('attachments').upload(filePath, file);
+        if (uploadError) {
+            console.error("Supabase storage upload error:", uploadError);
+            return { error: uploadError };
+        }
+    
+        const { data } = supabase.storage.from('attachments').getPublicUrl(filePath);
+        return { url: data.publicUrl };
+    } catch (err) {
+        console.error("Generic upload error:", err);
+        return { error: err };
+    }
 };
 
 
@@ -353,11 +375,8 @@ export const getMemberById = async (id: string): Promise<Member | undefined> => 
     const { data, error } = await supabase.from('members').select('*').eq('id', id).single();
     if (error) { if(error.code === 'PGRST116') return undefined; throw error; }
     
-    const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
-    if (paymentsError) throw paymentsError;
-
+    const rawPayments = await getPaymentsByMember(id);
     const rawMember = convertObjectKeys(data, toCamelCase);
-    const rawPayments = convertObjectKeys(paymentsData, toCamelCase);
     
     return calculateMemberDetails(rawMember, rawPayments);
 };
@@ -379,9 +398,8 @@ export const updateMember = async (memberId: string, memberData: Partial<Omit<Me
     const description = generateDetailedUpdateMessage(oldData, data, 'Membro', data.name);
     await addLogEntry(description, 'update', 'member', oldData);
     
-    const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
-    if (paymentsError) throw paymentsError;
-    return calculateMemberDetails(convertObjectKeys(data, toCamelCase), convertObjectKeys(paymentsData, toCamelCase));
+    const rawPayments = await getPaymentsByMember(memberId);
+    return calculateMemberDetails(convertObjectKeys(data, toCamelCase), rawPayments);
 };
 
 export const getPaymentsByMember = async (memberId: string): Promise<Payment[]> => {
@@ -440,15 +458,27 @@ export const updatePaymentAndTransaction = async (
         attachmentFilename: string;
         accountId: string;
     }
-) => {
+): Promise<{ warning?: string }> => {
+    let warning: string | undefined;
     let finalAttachmentUrl = formData.attachmentUrl;
+    let finalAttachmentFilename = formData.attachmentFilename;
+    const { data: oldPaymentData } = await supabase.from('payments').select('*').eq('id', paymentId).single();
+
     if (formData.attachmentUrl && formData.attachmentUrl.startsWith('blob:') && formData.attachmentFilename) {
-        finalAttachmentUrl = await uploadAttachment(formData.attachmentUrl, formData.attachmentFilename);
+        const { url, error } = await uploadAttachment(formData.attachmentUrl, formData.attachmentFilename);
+        if (error) {
+            if (error.message?.toLowerCase().includes('bucket not found')) {
+                warning = 'O anexo não foi salvo. Erro de configuração de armazenamento (Bucket not found).';
+                finalAttachmentUrl = oldPaymentData?.attachment_url || '';
+                finalAttachmentFilename = oldPaymentData?.attachment_filename || '';
+            } else {
+                throw error;
+            }
+        } else {
+            finalAttachmentUrl = url;
+        }
     }
     
-    const { data: oldPaymentData, error: findPaymentError } = await supabase.from('payments').select('*').eq('id', paymentId).single();
-    if (findPaymentError) throw findPaymentError;
-
     const { data: oldTransactionData, error: findTransactionError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
     if (findTransactionError) throw findTransactionError;
 
@@ -459,7 +489,7 @@ export const updatePaymentAndTransaction = async (
         account_id: formData.accountId,
         comments: formData.comments,
         attachment_url: finalAttachmentUrl,
-        attachment_filename: formData.attachmentFilename,
+        attachment_filename: finalAttachmentFilename,
     }).eq('id', transactionId).select().single();
     if (updateTrxErr) throw updateTrxErr;
     
@@ -470,12 +500,14 @@ export const updatePaymentAndTransaction = async (
         payment_date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
         comments: formData.comments,
         attachment_url: finalAttachmentUrl,
-        attachment_filename: formData.attachmentFilename,
+        attachment_filename: finalAttachmentFilename,
     }).eq('id', paymentId).select().single();
     if (updatePayErr) throw updatePayErr;
 
     const payDescription = generateDetailedUpdateMessage(oldPaymentData, updatedPayment, 'Pagamento', `ref. ${oldPaymentData.reference_month}`, lookupData);
     await addLogEntry(payDescription, 'update', 'payment', oldPaymentData);
+    
+    return { warning };
 };
 
 
@@ -501,39 +533,34 @@ export const deletePayment = async (paymentId: string): Promise<void> => {
 export const addIncomeTransactionAndPayment = async (
     transactionData: Pick<Transaction, 'description' | 'amount' | 'date' | 'accountId' | 'comments'>,
     paymentData: Pick<Payment, 'memberId' | 'referenceMonth' | 'attachmentUrl' | 'attachmentFilename'>
-): Promise<void> => {
+): Promise<{ warning?: string }> => {
+    let warning: string | undefined;
     let finalAttachmentUrl = paymentData.attachmentUrl;
+    let finalAttachmentFilename = paymentData.attachmentFilename;
     if (paymentData.attachmentUrl && paymentData.attachmentUrl.startsWith('blob:') && paymentData.attachmentFilename) {
-        finalAttachmentUrl = await uploadAttachment(paymentData.attachmentUrl, paymentData.attachmentFilename);
+        const { url, error } = await uploadAttachment(paymentData.attachmentUrl, paymentData.attachmentFilename);
+        if (error) {
+            if (error.message?.toLowerCase().includes('bucket not found')) {
+                warning = 'O anexo não foi salvo. Erro de configuração de armazenamento (Bucket not found).';
+                finalAttachmentUrl = undefined;
+                finalAttachmentFilename = undefined;
+            } else {
+                throw error;
+            }
+        } else {
+            finalAttachmentUrl = url;
+        }
     }
 
     let mensalidadesCategoryId: string;
-
-    const { data: existingCategories, error: catError } = await supabase
-        .from('categories')
-        .select('id')
-        .eq('name', 'Mensalidades')
-        .eq('type', 'income')
-        .limit(1);
-
-    if (catError) {
-        console.error("Error fetching 'Mensalidades' category:", catError);
-        throw new Error('Erro ao buscar a categoria de mensalidades.');
-    }
+    const { data: existingCategories, error: catError } = await supabase.from('categories').select('id').eq('name', 'Mensalidades').eq('type', 'income').limit(1);
+    if (catError) throw new Error('Erro ao buscar a categoria de mensalidades.');
 
     if (existingCategories && existingCategories.length > 0) {
         mensalidadesCategoryId = existingCategories[0].id;
     } else {
-        const { data: newCategory, error: createCatError } = await supabase
-            .from('categories')
-            .insert({ name: 'Mensalidades', type: 'income' })
-            .select('id')
-            .single();
-        
-        if (createCatError) {
-            console.error("Error creating 'Mensalidades' category:", createCatError);
-            throw new Error('Não foi possível criar a categoria "Mensalidades" automaticamente.');
-        }
+        const { data: newCategory, error: createCatError } = await supabase.from('categories').insert({ name: 'Mensalidades', type: 'income' }).select('id').single();
+        if (createCatError) throw new Error('Não foi possível criar a categoria "Mensalidades".');
         mensalidadesCategoryId = newCategory.id;
         await addLogEntry('Criada categoria "Mensalidades" automaticamente', 'create', 'category', { id: newCategory.id });
     }
@@ -547,7 +574,7 @@ export const addIncomeTransactionAndPayment = async (
         category_id: mensalidadesCategoryId,
         comments: transactionData.comments,
         attachment_url: finalAttachmentUrl,
-        attachment_filename: paymentData.attachmentFilename
+        attachment_filename: finalAttachmentFilename
     }).select().single();
     if (trxError) throw trxError;
     await addLogEntry(`Criada transação: "${trxData.description}"`, 'create', 'transaction', { id: trxData.id });
@@ -560,18 +587,20 @@ export const addIncomeTransactionAndPayment = async (
         comments: transactionData.comments,
         transaction_id: trxData.id,
         attachment_url: finalAttachmentUrl,
-        attachment_filename: paymentData.attachmentFilename
+        attachment_filename: finalAttachmentFilename
     }).select().single();
     if (payError) throw payError;
     await addLogEntry(`Criado pagamento para ref. ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
+    
+    return { warning };
 };
 
 export const updateTransactionAndPaymentLink = async (
     transactionId: string,
     transactionData: Partial<Transaction>,
     paymentLink: { memberId: string, referenceMonth: string }
-) => {
-    await transactionsApi.update(transactionId, transactionData);
+): Promise<{ warning?: string }> => {
+    const { warning } = await transactionsApi.update(transactionId, transactionData);
 
     const { data: oldPay, error: findPayErr } = await supabase.from('payments').select('*').eq('transaction_id', transactionId).single();
     if (findPayErr) throw findPayErr;
@@ -590,6 +619,8 @@ export const updateTransactionAndPaymentLink = async (
     const lookupData = await getLookupData();
     const description = generateDetailedUpdateMessage(oldPay, updatedPay, 'Pagamento', `ref. ${oldPay.reference_month}`, lookupData);
     await addLogEntry(description, 'update', 'payment', oldPay);
+    
+    return { warning };
 };
 
 
@@ -622,27 +653,52 @@ export const transactionsApi = {
         if (error) throw error;
         return convertObjectKeys(data, toCamelCase);
     },
-    add: async(transactionData: Omit<Transaction, 'id'>): Promise<Transaction> => {
+    add: async(transactionData: Omit<Transaction, 'id'>): Promise<{ data: Transaction, warning?: string }> => {
          const cleanedData = cleanTransactionDataForSupabase(transactionData);
          const finalTransactionData = { ...cleanedData };
+         let warning: string | undefined;
 
          if (finalTransactionData.attachmentUrl && finalTransactionData.attachmentUrl.startsWith('blob:') && finalTransactionData.attachmentFilename) {
-             finalTransactionData.attachmentUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
+            const { url, error: uploadError } = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
+            if (uploadError) {
+                if (uploadError.message?.toLowerCase().includes('bucket not found')) {
+                    warning = 'O anexo não foi salvo. Erro de configuração de armazenamento (Bucket not found).';
+                    finalTransactionData.attachmentUrl = undefined;
+                    finalTransactionData.attachmentFilename = undefined;
+                } else {
+                    throw uploadError;
+                }
+            } else {
+                finalTransactionData.attachmentUrl = url;
+            }
          }
          const { data, error } = await supabase.from('transactions').insert(convertObjectKeys(finalTransactionData, toSnakeCase)).select().single();
          if (error) throw error;
          await addLogEntry(`Adicionada transação: "${data.description}"`, 'create', 'transaction', { id: data.id });
-         return convertObjectKeys(data, toCamelCase);
+         return { data: convertObjectKeys(data, toCamelCase), warning };
     },
-    update: async(transactionId: string, transactionData: Partial<Omit<Transaction, 'id'>>): Promise<Transaction> => {
+    update: async(transactionId: string, transactionData: Partial<Omit<Transaction, 'id'>>): Promise<{ data: Transaction, warning?: string }> => {
         const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
         if(findError) throw findError;
         
         const cleanedData = cleanTransactionDataForSupabase(transactionData);
+        delete (cleanedData as any).payableBillId;
         const finalTransactionData = { ...cleanedData };
+        let warning: string | undefined;
 
         if (finalTransactionData.attachmentUrl && finalTransactionData.attachmentUrl.startsWith('blob:') && finalTransactionData.attachmentFilename) {
-            finalTransactionData.attachmentUrl = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
+            const { url, error: uploadError } = await uploadAttachment(finalTransactionData.attachmentUrl, finalTransactionData.attachmentFilename);
+            if (uploadError) {
+                if (uploadError.message?.toLowerCase().includes('bucket not found')) {
+                    warning = 'O anexo não foi salvo. Erro de configuração de armazenamento (Bucket not found).';
+                    finalTransactionData.attachmentUrl = oldData.attachment_url || undefined;
+                    finalTransactionData.attachmentFilename = oldData.attachment_filename || undefined;
+                } else {
+                    throw uploadError;
+                }
+            } else {
+                finalTransactionData.attachmentUrl = url;
+            }
         }
 
         const { data, error } = await supabase.from('transactions').update(convertObjectKeys(finalTransactionData, toSnakeCase)).eq('id', transactionId).select().single();
@@ -651,7 +707,7 @@ export const transactionsApi = {
         const lookupData = await getLookupData();
         const description = generateDetailedUpdateMessage(oldData, data, 'Transação', data.description, lookupData);
         await addLogEntry(description, 'update', 'transaction', oldData);
-        return convertObjectKeys(data, toCamelCase);
+        return { data: convertObjectKeys(data, toCamelCase), warning };
     },
     remove: async(transactionId: string): Promise<void> => {
         const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
@@ -754,13 +810,24 @@ export async function addPayableBill(billData: { description: string, payeeId: s
     }
 }
 
-export async function payBill(billId: string, paymentData: { accountId: string, paidAmount: number, paymentDate: string, attachmentUrl?: string, attachmentFilename?: string }) {
+export async function payBill(billId: string, paymentData: { accountId: string, paidAmount: number, paymentDate: string, attachmentUrl?: string, attachmentFilename?: string }): Promise<{ warning?: string }> {
     const { data: bill } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
     if (!bill) throw new Error("Bill not found");
 
-    const transaction = await transactionsApi.add({ description: `Pagamento: ${bill.description}`, amount: paymentData.paidAmount, date: new Date(paymentData.paymentDate+'T12:00:00Z').toISOString(), type: 'expense', accountId: paymentData.accountId, categoryId: bill.category_id, payeeId: bill.payee_id, payableBillId: billId, attachmentUrl: paymentData.attachmentUrl, attachmentFilename: paymentData.attachmentFilename });
+    const { data: transaction, warning } = await transactionsApi.add({ 
+        description: `Pagamento: ${bill.description}`, 
+        amount: paymentData.paidAmount, 
+        date: new Date(paymentData.paymentDate+'T12:00:00Z').toISOString(), 
+        type: 'expense', 
+        accountId: paymentData.accountId, 
+        categoryId: bill.category_id, 
+        payeeId: bill.payee_id, 
+        attachmentUrl: paymentData.attachmentUrl, 
+        attachmentFilename: paymentData.attachmentFilename 
+    });
     
     await payableBillsApi.update(billId, { status: 'paid', paidDate: transaction.date, transactionId: transaction.id, attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename });
+    return { warning };
 }
 
 export const getPayableBillsForLinking = async (): Promise<PayableBill[]> => {
@@ -773,11 +840,29 @@ export const linkExpenseToBill = async (billId: string, transactionId: string) =
     const { data: trx } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
     if(!trx) throw new Error("Transaction not found");
     await payableBillsApi.update(billId, { status: 'paid', paidDate: trx.date, transactionId });
-    await transactionsApi.update(transactionId, { payableBillId: billId });
 };
 
 export const getUnlinkedExpenses = async (): Promise<Transaction[]> => {
-    const { data, error } = await supabase.from('transactions').select('*').eq('type', 'expense').is('payable_bill_id', null).order('date', { ascending: false }).limit(50);
+    const { data: linkedIdsData, error: linkedIdsError } = await supabase
+        .from('payable_bills')
+        .select('transaction_id')
+        .not('transaction_id', 'is', null);
+
+    if (linkedIdsError) throw linkedIdsError;
+    const linkedTransactionIds = linkedIdsData.map(item => item.transaction_id);
+
+    let query = supabase
+        .from('transactions')
+        .select('*')
+        .eq('type', 'expense')
+        .order('date', { ascending: false })
+        .limit(50);
+    
+    if (linkedTransactionIds.length > 0) {
+        query = query.not('id', 'in', `(${linkedTransactionIds.join(',')})`);
+    }
+
+    const { data, error } = await query;
     if(error) throw error;
     return convertObjectKeys(data, toCamelCase);
 };
@@ -1015,4 +1100,59 @@ export const undoLogAction = async (logId: string) => {
     }
 
     await supabase.from('logs').update({ description: `[DESFEITO] ${log.description}` }).eq('id', logId);
+};
+
+// --- API: CHATBOT ---
+export const getChatbotContextData = async () => {
+    const [
+        members,
+        transactions,
+        accounts,
+        categories,
+        payees,
+        projects,
+        tags,
+        bills,
+        stats
+    ] = await Promise.all([
+        getMembers(),
+        transactionsApi.getAll(),
+        getAccountsWithBalance(),
+        categoriesApi.getAll(),
+        payeesApi.getAll(),
+        projectsApi.getAll(),
+        tagsApi.getAll(),
+        payableBillsApi.getAll(),
+        getDashboardStats()
+    ]);
+
+    const categoryMap = new Map(categories.map(c => [c.id, c.name]));
+    const payeeMap = new Map(payees.map(p => [p.id, p.name]));
+    const projectMap = new Map(projects.map(p => [p.id, p.name]));
+    const tagMap = new Map(tags.map(t => [t.id, t.name]));
+
+    return {
+        resumoGeral: {
+            ...stats,
+            dataAtual: new Date().toLocaleDateString('pt-BR')
+        },
+        membros: members.map(({ name, activityStatus, paymentStatus, totalDue }) => ({ name, activityStatus, paymentStatus, totalDue })),
+        ultimasTransacoes: transactions.slice(0, 100).map(t => ({
+            descricao: t.description,
+            valor: t.amount,
+            data: t.date,
+            tipo: t.type,
+            categoria: categoryMap.get(t.categoryId) || 'Não categorizado',
+            beneficiario: t.payeeId ? payeeMap.get(t.payeeId) : undefined,
+            projeto: t.projectId ? projectMap.get(t.projectId) : undefined,
+            tags: t.tagIds ? t.tagIds.map(tagId => tagMap.get(tagId)).filter(Boolean) : undefined,
+            comprovanteUrl: t.attachmentUrl || undefined,
+        })),
+        contasBancarias: accounts.map(({ name, currentBalance }) => ({ name, saldoAtual: currentBalance })),
+        contasAPagarAbertas: bills.filter(b => b.status !== 'paid').map(({ description, amount, dueDate, status }) => ({ description, amount, dueDate, status })),
+        listaDeCategorias: categories.map(c => ({ nome: c.name, tipo: c.type })),
+        listaDeBeneficiarios: payees.map(p => p.name),
+        listaDeProjetos: projects.map(p => p.name),
+        listaDeTags: tags.map(t => t.name),
+    };
 };
