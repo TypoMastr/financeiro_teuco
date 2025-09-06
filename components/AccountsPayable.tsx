@@ -192,7 +192,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
     const BillRow: React.FC<{bill: PayableBill}> = ({bill}) => {
         const statusColors = {
             paid: { bg: 'bg-green-100 dark:bg-dark-success-strong', text: 'text-green-700 dark:text-green-300', border: 'border-green-500/10 dark:border-green-500/20' },
-            pending: { bg: 'bg-blue-100 dark:bg-blue-800/10', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-500/10 dark:border-blue-500/20' },
+            pending: { bg: 'bg-yellow-100 dark:bg-yellow-500/10', text: 'text-yellow-700 dark:text-yellow-300', border: 'border-yellow-500/20' },
             overdue: { bg: 'bg-red-100 dark:bg-dark-danger-strong', text: 'text-red-700 dark:text-red-300', border: 'border-red-500/10 dark:border-red-500/20' },
         }[bill.status];
         
@@ -780,6 +780,9 @@ export const DeleteBillConfirmationPage: React.FC<{ viewState: ViewState; setVie
             if (bill.installmentGroupId && deleteOption === 'all') {
                 await payableBillsApi.deleteInstallmentGroup(bill.installmentGroupId);
                 toast.success('Todas as parcelas foram excluídas.');
+            } else if (bill.recurringId && deleteOption === 'all') {
+                await (payableBillsApi as any).deleteFutureRecurring(bill.recurringId, bill.dueDate);
+                toast.success('Esta e as futuras contas recorrentes foram excluídas.');
             } else {
                 await payableBillsApi.remove(bill.id);
                 toast.success('Conta excluída com sucesso.');
@@ -798,12 +801,12 @@ export const DeleteBillConfirmationPage: React.FC<{ viewState: ViewState; setVie
              <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border text-center space-y-4">
                  <p>Tem certeza que deseja excluir a conta a pagar <span className="font-bold">"{bill.description}"</span>?</p>
                  
-                 {bill.installmentGroupId && (
+                 {(bill.installmentGroupId || bill.recurringId) && (
                     <div className="p-3 bg-muted dark:bg-dark-muted rounded-lg space-y-2">
-                        <p className="text-sm font-semibold">Esta é uma conta parcelada.</p>
+                        <p className="text-sm font-semibold">Esta é uma conta recorrente.</p>
                          <div className="flex justify-center gap-4">
                              <label className="flex items-center gap-2 text-sm"><input type="radio" name="deleteOption" value="single" checked={deleteOption === 'single'} onChange={() => setDeleteOption('single')} /> Apenas esta</label>
-                             <label className="flex items-center gap-2 text-sm"><input type="radio" name="deleteOption" value="all" checked={deleteOption === 'all'} onChange={() => setDeleteOption('all')} /> Todas as parcelas</label>
+                             <label className="flex items-center gap-2 text-sm"><input type="radio" name="deleteOption" value="all" checked={deleteOption === 'all'} onChange={() => setDeleteOption('all')} /> Esta e as futuras</label>
                          </div>
                     </div>
                  )}

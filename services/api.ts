@@ -861,6 +861,31 @@ export const payableBillsApi = {
         
         const baseDescription = oldData[0].description.replace(/\s\(\d+\/\d+\)$/, '');
         await addLogEntry(`Removido grupo de parcelas "${baseDescription}" (${oldData.length} contas)`, 'delete', 'bill', oldData);
+    },
+    deleteFutureRecurring: async(recurringId: string, currentDueDate: string): Promise<void> => {
+        const { data: oldData, error: findError } = await supabase
+            .from('payable_bills')
+            .select('*')
+            .eq('recurring_id', recurringId)
+            .gte('due_date', currentDueDate);
+        
+        if (findError) throw findError;
+    
+        if (!oldData || oldData.length === 0) {
+            console.warn(`Attempted to delete future recurring bills with id: ${recurringId} from date ${currentDueDate}, but none were found.`);
+            return;
+        }
+    
+        const { error } = await supabase
+            .from('payable_bills')
+            .delete()
+            .eq('recurring_id', recurringId)
+            .gte('due_date', currentDueDate);
+        
+        if (error) throw error;
+    
+        const baseDescription = oldData[0].description;
+        await addLogEntry(`Removidas contas recorrentes futuras para "${baseDescription}" (${oldData.length} contas)`, 'delete', 'bill', oldData);
     }
 };
 
