@@ -109,12 +109,22 @@ Responda às perguntas do usuário baseando-se *exclusivamente* nos dados financ
 8.  **Confirmação:** Antes de executar uma ação baseada em uma interpretação, confirme com o usuário. Ex: "Você confirma que deseja registrar a entrada de R$ 100,00 feita por Pedro? ✅"
 `;
 
-// FIX: Destructured the `setView` prop to make it available within the component scope.
+const CHAT_HISTORY_KEY = 'chatbot_history_v1';
+const initialMessages: Message[] = [
+    { sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }
+];
+
 export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
     const toast = useToast();
-    const [messages, setMessages] = useState<Message[]>([
-        { sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }
-    ]);
+    const [messages, setMessages] = useState<Message[]>(() => {
+        try {
+            const storedMessages = sessionStorage.getItem(CHAT_HISTORY_KEY);
+            return storedMessages ? JSON.parse(storedMessages) : initialMessages;
+        } catch (error) {
+            console.error("Failed to load chat history from session storage", error);
+            return initialMessages;
+        }
+    });
     const [input, setInput] = useState('');
     const [isTyping, setIsTyping] = useState(false);
     const [isFetchingContext, setIsFetchingContext] = useState(false);
@@ -129,6 +139,15 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     useEffect(scrollToBottom, [messages, isTyping]);
     
     useEffect(() => {
+        try {
+            sessionStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages));
+        } catch (error) {
+            console.error("Failed to save chat history to session storage", error);
+            toast.error("Não foi possível salvar o histórico da conversa.");
+        }
+    }, [messages, toast]);
+    
+    useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
             const scrollHeight = textareaRef.current.scrollHeight;
@@ -137,7 +156,8 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     }, [input]);
 
     const handleResetChat = () => {
-        setMessages([{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }]);
+        sessionStorage.removeItem(CHAT_HISTORY_KEY);
+        setMessages(initialMessages);
         contextDataCache.current = null;
         toast.info("A conversa foi reiniciada.");
     };
@@ -236,7 +256,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="Pergunte..."
-                        className="flex-1 text-sm p-2.5 rounded-lg bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all resize-none"
+                        className="flex-1 text-base p-2.5 rounded-2xl bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all resize-none"
                         rows={1}
                         disabled={!ai}
                     />
