@@ -228,7 +228,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                     </motion.div>
                 )}
             </div>
-            <div className="flex-shrink-0 sticky bottom-0 left-0 right-0 z-10 pt-2 px-2 bg-background dark:bg-dark-background">
+            <div className="flex-shrink-0 pt-2 px-2 bg-background dark:bg-dark-background">
                 <form onSubmit={handleSend} className="flex items-end gap-2 max-w-2xl mx-auto">
                     <textarea
                         ref={textareaRef}

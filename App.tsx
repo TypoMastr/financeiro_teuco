@@ -156,7 +156,7 @@ const App: React.FC = () => {
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
-                  className="w-full"
+                  className="w-full h-full"
                   {...animationProps}
                 >
                   {renderView()}
