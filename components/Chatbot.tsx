@@ -194,7 +194,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     };
 
     return (
-        <div className="flex flex-col h-full max-w-2xl mx-auto">
+        <div className="flex flex-col h-full max-w-2xl mx-auto p-4 sm:p-6 lg:p-8 pb-0 sm:pb-0 lg:pb-8">
             <PageHeader title="ChatGPTeuco" onBack={() => setView({ name: 'overview' })} action={
                 <motion.button onClick={handleResetChat} className="p-2.5 rounded-full bg-card dark:bg-dark-card border border-border dark:border-dark-border" whileTap={{ scale: 0.9, rotate: 90 }}>
                     <RotateCw className="h-5 w-5"/>
@@ -228,7 +228,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                     </motion.div>
                 )}
             </div>
-            <div className="flex-shrink-0 pt-2 px-2 bg-background dark:bg-dark-background">
+            <div className="flex-shrink-0 pt-2 pb-24 lg:pb-0">
                 <form onSubmit={handleSend} className="flex items-end gap-2 max-w-2xl mx-auto">
                     <textarea
                         ref={textareaRef}

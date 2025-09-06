@@ -152,11 +152,11 @@ const App: React.FC = () => {
               setView={setView} 
             />
             
-            <main className={`flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto ${isChatbotView ? 'pb-16 lg:pb-6' : 'pb-32 lg:pb-6'} custom-scrollbar`}>
+            <main className={`flex-1 custom-scrollbar ${isChatbotView ? 'overflow-hidden' : 'p-4 sm:p-6 lg:p-8 overflow-y-auto pb-24 lg:pb-6'}`}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={getAnimationKey(view)}
-                  className="w-full h-full"
+                  className={`w-full ${isChatbotView ? 'h-full' : ''}`}
                   {...animationProps}
                 >
                   {renderView()}
