@@ -730,10 +730,37 @@ export const transactionsApi = {
     remove: async(transactionId: string): Promise<void> => {
         const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
         if (findError) throw findError;
+
+        if (oldData.payable_bill_id) {
+            const { data: billToUpdate, error: billError } = await supabase.from('payable_bills').select('*').eq('id', oldData.payable_bill_id).single();
+            if (billError) {
+                console.error("Could not find linked bill to update:", billError);
+            } else {
+                const today = new Date(); 
+                today.setHours(0,0,0,0);
+                const dueDate = new Date(billToUpdate.due_date + 'T12:00:00Z');
+                const newStatus = dueDate < today ? 'overdue' : 'pending';
+
+                const { error: updateError } = await supabase.from('payable_bills').update({
+                    status: newStatus,
+                    paid_date: null,
+                    transaction_id: null,
+                    attachment_url: null, 
+                    attachment_filename: null
+                }).eq('id', oldData.payable_bill_id);
+
+                if (updateError) {
+                    console.error("Failed to revert linked bill status:", updateError);
+                } else {
+                    await addLogEntry(`Status da conta "${billToUpdate.description}" revertido para "${newStatus}" devido à exclusão da transação.`, 'update', 'bill', { ...billToUpdate, status: newStatus, paid_date: null, transaction_id: null });
+                }
+            }
+        }
+        
         const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
         if (error) throw error;
         await addLogEntry(`Removida transação: "${oldData.description}"`, 'delete', 'transaction', oldData);
-    }
+    },
 };
 
 // --- API: ACCOUNTS PAYABLE ---

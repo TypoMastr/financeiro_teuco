@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 // FIX: Import types from the corrected types.ts file.
 import { ViewState, Account, Transaction, Category, Payee, Tag, Member, Project, PayableBill, Payment } from '../types';
 // FIX: Removed unused 'linkTransactionToPayment' import which caused an error.
-import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink, payableBillsApi, linkExpenseToBill } from '../services/api';
+import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink, payableBillsApi, linkExpenseToBill, deletePayment } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { DollarSign, FileSearch, PlusCircle, Paperclip, X as XIcon, Briefcase, Tag as TagIcon, ArrowLeft, Search, TrendingUp, ChevronRight, Layers, UploadCloud, ClipboardPaste } from './Icons';
+import { DollarSign, FileSearch, PlusCircle, Paperclip, X as XIcon, Briefcase, Tag as TagIcon, ArrowLeft, Search, TrendingUp, ChevronRight, Layers, UploadCloud, ClipboardPaste, AlertTriangle, Trash } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -413,6 +413,7 @@ export const TransactionFormPage: React.FC<{
     const [amountStr, setAmountStr] = useState('R$ 0,00');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     
     // State for linking/editing membership payment
     const [paymentLink, setPaymentLink] = useState<{ memberId: string; referenceMonth: string; } | null>(null);
@@ -585,6 +586,83 @@ export const TransactionFormPage: React.FC<{
         }
     };
     
+    const handleDelete = async () => {
+        if (!transaction) return;
+        setIsSubmitting(true);
+        try {
+            if (paymentLink) {
+                const payment = await getPaymentByTransactionId(transaction.id);
+                if (payment) {
+                    await deletePayment(payment.id);
+                    toast.success("Pagamento e transação associada excluídos.");
+                } else {
+                    await transactionsApi.remove(transaction.id);
+                    // FIX: Replaced non-existent `toast.warning` with `toast.info` as the `warning` type is not defined in the toast context.
+                    toast.info("Transação excluída, mas o vínculo de pagamento não foi encontrado para remoção.");
+                }
+            } else {
+                await transactionsApi.remove(transaction.id);
+                toast.success("Transação excluída com sucesso.");
+            }
+            setView(returnView);
+        } catch (error: any) {
+            toast.error(`Erro ao excluir: ${error.message}`);
+            setIsSubmitting(false);
+            setIsDeleteModalOpen(false);
+        }
+    };
+
+    const DeleteConfirmationModal: React.FC = () => (
+        <AnimatePresence>
+            {isDeleteModalOpen && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    onClick={() => setIsDeleteModalOpen(false)}
+                >
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                        animate={{ scale: 1, opacity: 1, y: 0 }}
+                        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                        className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="text-center">
+                             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                                <Trash className="h-6 w-6 text-destructive" aria-hidden="true" />
+                            </div>
+                            <h3 className="mt-4 text-xl font-bold font-display text-foreground dark:text-dark-foreground">Excluir Transação?</h3>
+                            <div className="mt-2 text-sm text-muted-foreground space-y-3">
+                                <p>Esta ação não pode ser desfeita.</p>
+                                {paymentLink && <p className="p-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-md">Isso também removerá o registro de pagamento da mensalidade associada.</p>}
+                                {transaction?.payableBillId && <p className="p-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-md">A conta a pagar vinculada voltará ao status de pendente.</p>}
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-center gap-4">
+                            <button
+                                type="button"
+                                className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted"
+                                onClick={() => setIsDeleteModalOpen(false)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                                onClick={handleDelete}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? 'Excluindo...' : 'Sim, Excluir'}
+                            </button>
+                        </div>
+                    </motion.div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+    );
+
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     if (error) {
@@ -610,10 +688,38 @@ export const TransactionFormPage: React.FC<{
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
     const filteredCategories = data.categories.filter((c: Category) => c.type === formState.type || c.type === 'both');
     const linkedBill = transaction?.payableBillId ? data.allPayableBills.find((b: PayableBill) => b.id === transaction.payableBillId) : null;
+    const memberForLink = paymentLink ? data.members.find((m: Member) => m.id === paymentLink.memberId) : null;
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
             <PageHeader title={isEdit ? "Editar Transação" : "Nova Transação"} onBack={() => setView(returnView)} />
+
+            {isEdit && (paymentLink || linkedBill) && (
+                <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 bg-secondary dark:bg-dark-secondary rounded-lg text-sm text-secondary-foreground dark:text-dark-secondary-foreground"
+                >
+                    {paymentLink && memberForLink && (
+                        <p>
+                            Vinculado à mensalidade de{' '}
+                            <button type="button" onClick={() => setView({ name: 'member-profile', id: paymentLink!.memberId })} className="font-bold underline hover:text-primary transition-colors">
+                                {memberForLink.name}
+                            </button>
+                            .
+                        </p>
+                    )}
+                    {linkedBill && (
+                        <p>
+                            Vinculado à conta a pagar:{' '}
+                            <button type="button" onClick={() => setView({ name: 'accounts-payable' })} className="font-bold underline hover:text-primary transition-colors">
+                                {linkedBill.description}
+                            </button>
+                            .
+                        </p>
+                    )}
+                </motion.div>
+            )}
 
              <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
                 <div className="flex bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
@@ -692,7 +798,20 @@ export const TransactionFormPage: React.FC<{
                     )}
                 </div>
             </div>
-            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
+            <div className={`flex items-center ${isEdit ? 'justify-between' : 'justify-center'}`}>
+                {isEdit && (
+                     <button
+                        type="button"
+                        onClick={() => setIsDeleteModalOpen(true)}
+                        className="text-sm font-semibold text-danger hover:underline disabled:opacity-50"
+                        disabled={isSubmitting}
+                    >
+                        Excluir Transação
+                    </button>
+                )}
+                <SubmitButton isSubmitting={isSubmitting} text="Salvar" />
+            </div>
+            <DeleteConfirmationModal />
         </form>
     );
 };
