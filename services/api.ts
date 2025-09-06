@@ -1235,7 +1235,13 @@ export const getChatbotContextData = async () => {
             comprovanteUrl: t.attachmentUrl || undefined,
         })),
         contasBancarias: accounts.map(({ name, currentBalance }) => ({ name, saldoAtual: currentBalance })),
-        contasAPagarAbertas: bills.filter(b => b.status !== 'paid').map(({ description, amount, dueDate, status }) => ({ description, amount, dueDate, status })),
+        historicoDeContas: bills.map(({ description, amount, dueDate, status, paidDate }) => ({ 
+            description, 
+            amount, 
+            dueDate, 
+            status,
+            pagoEm: paidDate
+        })),
         listaDeCategorias: categories.map(c => ({ nome: c.name, tipo: c.type })),
         listaDeBeneficiarios: payees.map(p => p.name),
         listaDeProjetos: projects.map(p => p.name),
