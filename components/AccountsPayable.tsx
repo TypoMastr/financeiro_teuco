@@ -191,9 +191,9 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
 
     const BillRow: React.FC<{bill: PayableBill}> = ({bill}) => {
         const statusColors = {
-            paid: { bg: 'bg-green-500/10', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/20' },
-            pending: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
-            overdue: { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' },
+            paid: { bg: 'bg-green-100 dark:bg-dark-success-strong', text: 'text-green-700 dark:text-green-300', border: 'border-green-500/10 dark:border-green-500/20' },
+            pending: { bg: 'bg-blue-100 dark:bg-blue-800/10', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-500/10 dark:border-blue-500/20' },
+            overdue: { bg: 'bg-red-100 dark:bg-dark-danger-strong', text: 'text-red-700 dark:text-red-300', border: 'border-red-500/10 dark:border-red-500/20' },
         }[bill.status];
         
         const isExpanded = expandedBillId === bill.id;
@@ -210,42 +210,52 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
             <motion.div
                 layout
                 key={bill.id}
-                className={`rounded-lg border overflow-hidden transition-all duration-200 ${statusColors.bg} ${statusColors.border}`}
+                className={`rounded-xl border overflow-hidden transition-all duration-300 ${statusColors.bg} ${statusColors.border}`}
             >
                 <div
-                    className="p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 cursor-pointer"
+                    className="p-3 cursor-pointer"
                     onClick={() => setExpandedBillId(isExpanded ? null : bill.id)}
                 >
-                    <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-foreground dark:text-dark-foreground truncate">{bill.description}</p>
-                        <p className="text-xs text-muted-foreground">{payeeMap.get(bill.payeeId) || 'N/A'}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text}`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
-                            <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `Pago em ${formatDate(bill.paidDate!)}` : `Vence em ${formatDate(bill.dueDate)}`}</span>
-                            {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
+                    <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                            <p className="font-bold text-foreground dark:text-dark-foreground truncate">{bill.description}</p>
+                            <p className="text-sm text-muted-foreground">{payeeMap.get(bill.payeeId) || 'N/A'}</p>
+                        </div>
+                        <div className="flex-shrink-0">
+                            <p className={`text-xl font-bold font-mono text-right ${statusColors.text}`}>
+                                {bill.isEstimate && <span className="font-normal text-xs" title="Valor estimado">(est.) </span>}
+                                {formatCurrency(bill.amount)}
+                            </p>
                         </div>
                     </div>
-                     <div className="flex w-full sm:w-auto flex-row items-center justify-between sm:justify-end gap-2 sm:gap-4">
-                         <p className={`text-base sm:text-lg font-bold font-mono text-right ${statusColors.text}`}>
-                            {bill.isEstimate && <span className="font-normal" title="Valor estimado">(est.) </span>}
-                            {formatCurrency(bill.amount)}
-                         </p>
-                        <div className="flex gap-2 justify-end items-center">
-                            {bill.status === 'paid' && bill.attachmentUrl && (
-                                <button onClick={(e) => handleActionClick(e, () => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView }))} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Paperclip className="h-4 w-4 sm:h-5 sm:w-5"/></button>
-                            )}
-                            {bill.status !== 'paid' && <button onClick={(e) => handleActionClick(e, () => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView }))} className="bg-primary text-primary-foreground text-sm font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-md">Pagar</button>}
-                            <button onClick={(e) => handleActionClick(e, () => setView({ name: 'bill-form', billId: bill.id, returnView: currentView }))} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"><Edit className="h-4 w-4 sm:h-5 sm:w-5"/></button>
-                            <button onClick={(e) => handleActionClick(e, () => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView }))} className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-danger shadow-sm border border-border dark:border-dark-border hover:border-destructive"><Trash className="h-4 w-4 sm:h-5 sm:w-5"/></button>
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center">
-                                <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
-                                    <ChevronDown className="h-5 w-5 text-muted-foreground"/>
-                                </motion.div>
+                    
+                    <div className="flex justify-between items-center mt-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors.bg} ${statusColors.text} ring-1 ring-inset ring-current/20`}>{bill.status === 'overdue' ? 'Vencido' : bill.status === 'pending' ? 'Pendente' : 'Pago'}</span>
+                            <span className="text-xs text-muted-foreground">{bill.status === 'paid' ? `em ${formatDate(bill.paidDate!)}` : `vence em ${formatDate(bill.dueDate)}`}</span>
+                            {bill.recurringId && <span title="Conta recorrente"><Repeat className="h-3 w-3 text-muted-foreground"/></span>}
+                        </div>
+                        
+                        <div className="flex items-center gap-1">
+                            {bill.status !== 'paid' && 
+                              <button onClick={(e) => handleActionClick(e, () => setView({ name: 'pay-bill-form', billId: bill.id, returnView: currentView }))} 
+                              className="text-primary bg-primary/10 hover:bg-primary/20 font-semibold text-xs py-1.5 px-3 rounded-full transition-colors">
+                                Pagar
+                              </button>
+                            }
+                            <button title="Editar" onClick={(e) => handleActionClick(e, () => setView({ name: 'bill-form', billId: bill.id, returnView: currentView }))} className="h-7 w-7 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted dark:hover:bg-dark-muted transition-colors"><Edit className="h-4 w-4"/></button>
+                            <button title="Excluir" onClick={(e) => handleActionClick(e, () => setView({ name: 'delete-bill-confirmation', billId: bill.id, returnView: currentView }))} className="h-7 w-7 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted dark:hover:bg-dark-muted transition-colors"><Trash className="h-4 w-4"/></button>
+                            
+                            <div className="h-7 w-7 flex items-center justify-center">
+                              <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                                  <ChevronDown className="h-5 w-5 text-muted-foreground"/>
+                              </motion.div>
                             </div>
                         </div>
                     </div>
                 </div>
-                 <AnimatePresence>
+                
+                <AnimatePresence>
                     {isExpanded && (
                         <motion.div
                             initial={{ height: 0, opacity: 0 }}
@@ -254,7 +264,7 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                             transition={{ duration: 0.3, ease: 'easeInOut' }}
                             className="overflow-hidden"
                         >
-                            <div className="px-3 pb-3 border-t border-black/10 dark:border-white/10">
+                            <div className="px-4 pb-4 border-t border-black/10 dark:border-white/10">
                                 <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                                     <div className="space-y-2">
                                         <p><strong className="text-muted-foreground">Categoria:</strong> {categoryName || 'N/A'}</p>
@@ -264,6 +274,12 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                                         {bill.recurringId && !bill.installmentInfo && (
                                             <p><strong className="text-muted-foreground">Recorrência:</strong> Mensal</p>
                                         )}
+                                        {bill.attachmentUrl && bill.status === 'paid' && 
+                                          <button onClick={(e) => handleActionClick(e, () => setView({ name: 'attachment-view', attachmentUrl: bill.attachmentUrl!, returnView: currentView }))}
+                                            className="flex items-center gap-1.5 text-primary font-semibold text-sm hover:underline">
+                                            <Paperclip className="h-4 w-4" /> Ver Comprovante
+                                          </button>
+                                        }
                                     </div>
                                     <div className="space-y-2">
                                         {transaction && (
