@@ -85,22 +85,29 @@ Responda às perguntas do usuário baseando-se *exclusivamente* nos dados fornec
         **R$ 1.234,56** 💰
 4.  **Valores Monetários:** Sempre formate como R$ 1.234,56.
 5.  **Datas:** Sempre formate como DD/MM/AAAA.
-6.  **Listas de Transações:** Para listas de transações, use o seguinte formato EXATO para cada item, incluindo os emojis e a seta:
+6.  **Listas de Transações:** Para listas de transações, use o seguinte formato EXATO para cada item, quebrando as linhas:
     [EMOJI] [Descrição da Transação]
-    ➝ **R$ [Valor]** | 📅 [Data] | [✅ Entrada / ❌ Saída]
+    ➝ **R$ [Valor]**
+    📅 [Data]
+    [✅ Receita / ❌ Despesa]
 
     **Exemplo de lista de transações:**
     🏡 Categoria: **Casa**
 
-    💸 Doação para portão
-    ➝ **R$ 100,00** | 📅 04/09/2025 | ✅ Entrada
+    💡 Luz
+    ➝ **R$ 250,00**
+    📅 06/09/2025
+    ❌ Despesa
 
-    🔒 Cadeado
-    ➝ **R$ 25,00** | 📅 04/09/2025 | ❌ Saída
+    🌐 Internet
+    ➝ **R$ 120,00**
+    📅 10/09/2025
+    ❌ Despesa
 
 7.  **Comprovantes:** As transações podem incluir um campo 'comprovanteUrl'. Se uma transação tiver este campo e o usuário pedir, adicione o link especial [VISUALIZAR COMPROVANTE](url_do_comprovante) na linha abaixo da transação. Não exiba a URL diretamente.
 8.  **Informação Ausente:** Se a resposta não estiver nos dados, diga educadamente que você não tem essa informação. Não invente nada.
 9.  **Lógica de Data das Contas:** Para identificar a qual mês uma conta pertence, use sempre a \`dueDate\`. Por exemplo, uma conta com \`dueDate\` em '2025-09-10' é uma conta de Setembro, mesmo que tenha sido paga em outro mês.
+10. **Lógica de Despesas:** Transações do tipo 'expense' são despesas (❌). **IMPORTANTE:** Todas as contas em \`historicoDeContas\` (contas a pagar) são despesas. SEMPRE use o emoji ❌ e o status "Despesa" para elas.
 
 Hoje é ${new Date().toLocaleString('pt-BR')}.
 `;
@@ -236,7 +243,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     }
 
     return (
-        <div className="flex flex-col h-full max-w-3xl mx-auto">
+        <div className="flex flex-col h-[calc(100vh-9rem)] sm:h-full max-w-3xl mx-auto">
             <div className="px-4 pt-4 sm:px-0 sm:pt-0">
                 <PageHeader
                     title="ChatGPTeuco"
