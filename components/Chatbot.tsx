@@ -3,8 +3,9 @@ import { GoogleGenAI } from '@google/genai';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ViewState } from '../types';
 import { PageHeader } from './common/PageLayout';
-import { MessageSquare, Send, User, Paperclip } from './Icons';
+import { MessageSquare, Send, User, Paperclip, RotateCw } from './Icons';
 import { getChatbotContextData } from '../services/api';
+import { useToast } from './Notifications';
 
 interface Message {
     sender: 'user' | 'ai';
@@ -120,6 +121,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
+    const toast = useToast();
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -133,6 +135,12 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
         }
         scrollToBottom();
     }, [messages]);
+
+    const handleClearChat = () => {
+        setMessages([{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }]);
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        toast.info("A conversa foi reiniciada.");
+    };
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -191,7 +199,20 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     return (
         <div className="flex flex-col h-full max-w-3xl mx-auto">
             <div className="px-4 pt-4 sm:px-0 sm:pt-0">
-                <PageHeader title="ChatGPTeuco" onBack={() => setView({ name: 'overview' })} />
+                <PageHeader
+                    title="ChatGPTeuco"
+                    onBack={() => setView({ name: 'overview' })}
+                    action={
+                        <motion.button
+                            onClick={handleClearChat}
+                            className="bg-card dark:bg-dark-card p-2.5 rounded-full border border-border dark:border-dark-border text-muted-foreground hover:text-primary transition-colors"
+                            whileTap={{ scale: 0.9 }}
+                            aria-label="Nova conversa"
+                        >
+                            <RotateCw className="h-5 w-5" />
+                        </motion.button>
+                    }
+                />
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
