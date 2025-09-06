@@ -53,7 +53,21 @@ const MessageContent: React.FC<{ text: string; setView: (view: ViewState) => voi
 };
 
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Conditionally initialize GoogleGenAI to prevent crashing if API key is missing
+let ai: GoogleGenAI | null = null;
+const apiKey = process.env.API_KEY;
+
+try {
+    if (apiKey) {
+        ai = new GoogleGenAI({ apiKey });
+    } else {
+        console.error("API_KEY for Gemini is not configured. Chatbot functionality will be disabled.");
+    }
+} catch (error) {
+    console.error("Failed to initialize GoogleGenAI, likely due to a missing API key:", error);
+    ai = null; // Ensure ai is null if initialization fails
+}
+
 
 const systemInstruction = `
 Você é o "ChatGPTeuco", um assistente financeiro amigável e com um estilo visual para uma pequena organização.
@@ -89,11 +103,20 @@ Responda às perguntas do usuário baseando-se *exclusivamente* nos dados fornec
 Hoje é ${new Date().toLocaleDateString('pt-BR')}.
 `;
 
+const SESSION_STORAGE_KEY = 'chatbot_messages_history';
 
 export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
-    const [messages, setMessages] = useState<Message[]>([
-        { sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }
-    ]);
+    const [messages, setMessages] = useState<Message[]>(() => {
+        try {
+            const storedMessages = sessionStorage.getItem(SESSION_STORAGE_KEY);
+            return storedMessages 
+                ? JSON.parse(storedMessages) 
+                : [{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }];
+        } catch (error) {
+            console.error("Failed to parse messages from sessionStorage", error);
+            return [{ sender: 'ai', text: 'Olá! Eu sou o ChatGPTeuco. Como posso ajudar a analisar os dados financeiros hoje?' }];
+        }
+    });
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
@@ -103,13 +126,18 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
     };
 
     useEffect(() => {
+        try {
+            sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(messages));
+        } catch (error) {
+            console.error("Failed to save messages to sessionStorage", error);
+        }
         scrollToBottom();
     }, [messages]);
 
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         const userMessage = inputValue.trim();
-        if (!userMessage || isLoading) return;
+        if (!userMessage || isLoading || !ai) return;
 
         setMessages(prev => [...prev, { sender: 'user', text: userMessage }]);
         setInputValue('');
@@ -142,6 +170,23 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
             setIsLoading(false);
         }
     };
+
+    if (!apiKey) {
+        return (
+            <div className="flex flex-col h-full max-w-3xl mx-auto">
+                <div className="px-4 pt-4 sm:px-0 sm:pt-0">
+                    <PageHeader title="ChatGPTeuco" onBack={() => setView({ name: 'overview' })} />
+                </div>
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                    <MessageSquare className="w-16 h-16 text-muted-foreground mb-4" />
+                    <h3 className="text-xl font-bold text-foreground dark:text-dark-foreground">Chat Indisponível</h3>
+                    <p className="text-muted-foreground mt-2">
+                        A funcionalidade de chat com IA não está disponível no momento devido a um problema de configuração do ambiente.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full max-w-3xl mx-auto">

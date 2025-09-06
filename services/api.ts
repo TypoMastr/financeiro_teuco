@@ -1136,7 +1136,16 @@ export const getChatbotContextData = async () => {
             ...stats,
             dataAtual: new Date().toLocaleDateString('pt-BR')
         },
-        membros: members.map(({ name, activityStatus, paymentStatus, totalDue }) => ({ name, activityStatus, paymentStatus, totalDue })),
+        membros: members.map(({ name, email, phone, birthday, monthlyFee, activityStatus, paymentStatus, totalDue }) => ({ 
+            name, 
+            email, 
+            phone, 
+            birthday, 
+            valorMensalidade: monthlyFee, 
+            activityStatus, 
+            paymentStatus, 
+            totalDue 
+        })),
         ultimasTransacoes: transactions.slice(0, 100).map(t => ({
             descricao: t.description,
             valor: t.amount,
