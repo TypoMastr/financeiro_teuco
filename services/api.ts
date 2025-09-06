@@ -948,19 +948,22 @@ export const getUnlinkedExpenses = async (): Promise<Transaction[]> => {
 export const getDashboardStats = async (): Promise<Stats> => {
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
-    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString();
+    const endOfMonthWithTime = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59).toISOString();
 
     const [members, payments, expenses, accountsWithBalance, futureIncome, pendingBills] = await Promise.all([
         getMembers(),
-        supabase.from('payments').select('amount').gte('payment_date', startOfMonth).lte('payment_date', endOfMonth),
-        supabase.from('transactions').select('amount').eq('type', 'expense').gte('date', startOfMonth).lte('date', endOfMonth),
+        supabase.from('payments').select('amount').gte('payment_date', startOfMonth).lte('payment_date', endOfMonthWithTime),
+        supabase.from('transactions').select('amount').eq('type', 'expense').gte('date', startOfMonth).lte('date', endOfMonthWithTime),
         getAccountsWithBalance(),
-        getFutureIncomeSummary(),
-        supabase.from('payable_bills').select('amount').in('status', ['pending', 'overdue'])
+        // Future-dated income transactions for the CURRENT month
+        supabase.from('transactions').select('amount').eq('type', 'income').gt('date', today.toISOString()).gte('date', startOfMonth).lte('date', endOfMonthWithTime),
+        // Unpaid bills due in the CURRENT month
+        supabase.from('payable_bills').select('amount').in('status', ['pending', 'overdue']).gte('due_date', startOfMonth).lte('due_date', endOfMonthWithTime.slice(0, 10))
     ]);
 
     if (payments.error) throw payments.error;
     if (expenses.error) throw expenses.error;
+    if (futureIncome.error) throw futureIncome.error;
     if (pendingBills.error) throw pendingBills.error;
     
     return {
@@ -970,45 +973,36 @@ export const getDashboardStats = async (): Promise<Stats> => {
         monthlyRevenue: payments.data.reduce((sum, p) => sum + p.amount, 0),
         monthlyExpenses: expenses.data.reduce((sum, t) => sum + t.amount, 0),
         currentBalance: accountsWithBalance.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0),
-        projectedIncome: futureIncome.totalAmount,
+        projectedIncome: futureIncome.data.reduce((sum, t) => sum + t.amount, 0),
         projectedExpenses: pendingBills.data.reduce((sum, b) => sum + b.amount, 0),
     };
 };
 
 export const getHistoricalMonthlySummary = async (): Promise<{ month: string, income: number, expense: number }[]> => {
-    const today = new Date();
-    const oneYearAgo = new Date(today.getFullYear() - 1, today.getMonth(), 1);
-
     const { data: transactions, error } = await supabase
         .from('transactions')
-        .select('date, type, amount')
-        .gte('date', oneYearAgo.toISOString());
+        .select('date, type, amount');
 
     if (error) throw error;
 
     const monthlySummary: Record<string, { income: number, expense: number }> = {};
 
-    for (let i = 0; i < 12; i++) {
-        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        monthlySummary[monthKey] = { income: 0, expense: 0 };
-    }
-
     transactions.forEach(trx => {
         const date = new Date(trx.date);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        if (monthlySummary[monthKey]) {
-            if (trx.type === 'income') {
-                monthlySummary[monthKey].income += trx.amount;
-            } else {
-                monthlySummary[monthKey].expense += trx.amount;
-            }
+        if (!monthlySummary[monthKey]) {
+            monthlySummary[monthKey] = { income: 0, expense: 0 };
+        }
+        if (trx.type === 'income') {
+            monthlySummary[monthKey].income += trx.amount;
+        } else {
+            monthlySummary[monthKey].expense += trx.amount;
         }
     });
 
     return Object.entries(monthlySummary)
         .map(([month, values]) => ({ month, ...values }))
-        .sort((a, b) => a.month.localeCompare(b.month)); // Sort oldest to newest for the chart
+        .sort((a, b) => a.month.localeCompare(b.month));
 };
 
 

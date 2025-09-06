@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { motion, Variants } from 'framer-motion';
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { getDashboardStats, getHistoricalMonthlySummary } from '../services/api';
 import { Stats, ViewState } from '../types';
-import { Users, TrendingUp, TrendingDown, Wallet } from './Icons';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { TrendingUp, TrendingDown, Wallet, Scale, ChevronDown } from './Icons';
 
 
 // --- Animation Variants ---
@@ -39,8 +38,9 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.Re
 export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
+  const [historicalData, setHistoricalData] = useState<{ month: string, income: number, expense: number }[]>([]);
   const [loadingHistorical, setLoadingHistorical] = useState(true);
+  const [openHistoryMonth, setOpenHistoryMonth] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -52,12 +52,7 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
             getHistoricalMonthlySummary()
         ]);
         setStats(statsData);
-        const formattedData = historicalSummary.map(item => ({
-            name: new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
-            Receitas: item.income,
-            Despesas: item.expense,
-        }));
-        setHistoricalData(formattedData);
+        setHistoricalData(historicalSummary);
       } catch (error) {
         console.error("Erro ao buscar dados da visão geral", error);
       } finally {
@@ -67,6 +62,32 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
     };
     fetchAllData();
   }, []);
+  
+  const monthlyBalance = (stats?.monthlyRevenue || 0) - (stats?.monthlyExpenses || 0);
+
+  const groupedAndFilteredHistory = useMemo(() => {
+    const data = historicalData
+        .filter(item => item.month >= '2025-09')
+        .map(item => ({
+            ...item,
+            year: item.month.substring(0, 4),
+            monthName: new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'long' }),
+        }))
+        .reduce((acc, item) => {
+            const { year } = item;
+            if (!acc[year]) {
+                acc[year] = [];
+            }
+            acc[year].push(item);
+            return acc;
+        }, {} as Record<string, any[]>);
+
+    // Reverse months within each year to show newest first
+    Object.keys(data).forEach(year => data[year].reverse());
+    return data;
+  }, [historicalData]);
+
+  const sortedYears = useMemo(() => Object.keys(groupedAndFilteredHistory).sort((a,b) => parseInt(b) - parseInt(a)), [groupedAndFilteredHistory]);
   
   if (loadingStats) {
     return (
@@ -85,43 +106,86 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
     >
       <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</motion.h2>
 
-      <motion.div variants={containerVariants} className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-5">
-        <StatCard title="Saldo Atual" value={formatCurrency(stats?.currentBalance || 0)} icon={<Wallet className="w-5 h-5" />} colorClass="text-blue-500" />
-        <StatCard title="Receita do Mês" value={formatCurrency(stats?.monthlyRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" />
-        <StatCard title="Gastos do Mês" value={formatCurrency(stats?.monthlyExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-danger" />
-        <StatCard title="Projeção Receitas" value={formatCurrency(stats?.projectedIncome || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-green-400" />
-        <StatCard title="Projeção Despesas" value={formatCurrency(stats?.projectedExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-orange-400" />
-        <StatCard title="Membros Ativos" value={stats?.totalMembers || 0} icon={<Users className="w-5 h-5" />} />
+      <motion.div variants={itemVariants} className="space-y-4">
+        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo do Mês</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard title="Receitas" value={formatCurrency(stats?.monthlyRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" />
+            <StatCard title="Despesas" value={formatCurrency(stats?.monthlyExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-danger" />
+            <StatCard title="Saldo" value={formatCurrency(monthlyBalance)} icon={<Scale className="w-5 h-5" />} colorClass={monthlyBalance >= 0 ? 'text-foreground dark:text-dark-foreground' : 'text-danger'} />
+        </div>
       </motion.div>
-
+      <motion.div variants={itemVariants} className="space-y-4">
+          <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Saldos e Projeções</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <StatCard title="Saldo Geral" value={formatCurrency(stats?.currentBalance || 0)} icon={<Wallet className="w-5 h-5" />} colorClass="text-blue-500" />
+              <StatCard title="Receitas Futuras" value={formatCurrency(stats?.projectedIncome || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-green-400" />
+              <StatCard title="Despesas Futuras" value={formatCurrency(stats?.projectedExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-orange-400" />
+          </div>
+      </motion.div>
+      
       <motion.div variants={itemVariants}>
-        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Balanço Mensal</h3>
-        <p className="text-muted-foreground text-sm mb-4">Receitas e despesas nos últimos 12 meses.</p>
-        <div className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border h-80 sm:h-96">
-            {loadingHistorical ? (
-                <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>
-            ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={historicalData} margin={{ top: 5, right: 10, left: -25, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(128, 128, 128, 0.1)" />
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
-                        <YAxis tickFormatter={(value) => `R$${(value as number)/1000}k`} tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
-                        <Tooltip
-                            formatter={(value: number) => formatCurrency(value)}
-                            contentStyle={{
-                                backgroundColor: 'hsl(var(--card))',
-                                borderColor: 'hsl(var(--border))',
-                                color: 'hsl(var(--card-foreground))',
-                                borderRadius: '0.5rem'
-                            }}
-                            cursor={{ fill: 'rgba(128, 128, 128, 0.1)' }}
-                        />
-                        <Legend wrapperStyle={{ fontSize: '14px' }} />
-                        <Bar dataKey="Receitas" fill="#3CB371" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="Despesas" fill="#D9534F" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                </ResponsiveContainer>
-            )}
+        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Histórico Mensal</h3>
+        <p className="text-muted-foreground text-sm mb-4">Resumo dos resultados de cada mês.</p>
+        <div className="space-y-4">
+          {loadingHistorical ? (
+            <div className="flex justify-center items-center h-40"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>
+          ) : sortedYears.length > 0 ? (
+            sortedYears.map(year => (
+              <motion.div key={year} variants={itemVariants} className="space-y-2">
+                <h4 className="text-lg font-bold mt-4 text-muted-foreground">{year}</h4>
+                {groupedAndFilteredHistory[year].map(item => {
+                  const isExpanded = openHistoryMonth === item.month;
+                  const balance = item.income - item.expense;
+                  return (
+                    <motion.div key={item.month} className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border overflow-hidden" layout>
+                      <button
+                        onClick={() => setOpenHistoryMonth(isExpanded ? null : item.month)}
+                        className="w-full flex justify-between items-center p-4 text-left font-semibold capitalize"
+                        aria-expanded={isExpanded}
+                      >
+                        <span>{item.monthName}</span>
+                        <div className="flex items-center gap-4">
+                          <span className={`font-mono ${balance >= 0 ? 'text-success' : 'text-danger'}`}>{formatCurrency(balance)}</span>
+                          <motion.div animate={{ rotate: isExpanded ? 180 : 0 }}>
+                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          </motion.div>
+                        </div>
+                      </button>
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                          >
+                            <div className="px-4 pb-4 border-t border-border dark:border-dark-border text-sm space-y-2 pt-3">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Receitas:</span>
+                                <span className="font-semibold text-success">{formatCurrency(item.income)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Despesas:</span>
+                                <span className="font-semibold text-danger">{formatCurrency(item.expense)}</span>
+                              </div>
+                              <div className="flex justify-between pt-2 border-t border-border/50 dark:border-dark-border/50">
+                                <span className="font-bold text-foreground dark:text-dark-foreground">Saldo:</span>
+                                <span className={`font-bold ${balance >= 0 ? 'text-success' : 'text-danger'}`}>{formatCurrency(balance)}</span>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            ))
+          ) : (
+            <div className="text-center py-10 bg-card dark:bg-dark-card rounded-lg">
+                <p className="text-muted-foreground">Nenhum histórico disponível para o período.</p>
+            </div>
+          )}
         </div>
       </motion.div>
     </motion.div>
