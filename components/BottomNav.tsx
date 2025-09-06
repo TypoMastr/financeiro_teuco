@@ -24,6 +24,7 @@ const mainNavItems = {
     icon: Dashboard,
     items: [
       { view: 'overview', label: 'Visão Geral', icon: Dashboard },
+      { view: 'chatbot', label: 'Chat', icon: MessageSquare },
       { view: 'reports', label: 'Relatórios', icon: FileText },
       { view: 'log', label: 'Histórico', icon: History },
       { view: 'settings', label: 'Ajustes', icon: Settings },
@@ -137,21 +138,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentViewName, setView }
         transition={{ type: 'spring', stiffness: 200, damping: 30, delay: 0.2 }}
         className="lg:hidden fixed bottom-4 left-4 right-4 h-16 bg-card/80 dark:bg-dark-card/80 backdrop-blur-xl border border-border dark:border-dark-border z-50 no-print rounded-2xl shadow-xl"
       >
-        <div className="grid grid-cols-3 items-stretch h-full max-w-lg mx-auto">
+        <div className="grid grid-cols-2 items-stretch h-full max-w-lg mx-auto">
           <MainMenuButton menuKey="cadastros" />
-          
-          <div className="flex flex-col items-center justify-center">
-             <motion.button
-                onClick={() => handleSubMenuClick({ name: 'chatbot' })}
-                className="flex-1 w-full h-full flex flex-col items-center justify-center gap-1.5 transition-colors duration-200 relative text-muted-foreground hover:text-foreground focus:outline-none"
-                style={{ WebkitTapHighlightColor: "transparent" }}
-                aria-label="Abrir Chatbot"
-            >
-                <MessageSquare className={`h-6 w-6 transition-colors ${currentViewName === 'chatbot' ? 'text-primary' : ''}`} />
-                <span className={`text-xs font-bold transition-colors ${currentViewName === 'chatbot' ? 'text-primary' : ''}`}>Chat</span>
-            </motion.button>
-          </div>
-
           <MainMenuButton menuKey="gestao" />
         </div>
       </motion.nav>
