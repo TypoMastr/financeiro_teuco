@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 // FIX: Import types from the corrected types.ts file.
 import { Member, ViewState } from '../types';
 import { getMemberById, addMember, updateMember } from '../services/api';
-import { motion, Variants } from 'framer-motion';
-import { Save, User, Mail, Phone, Calendar, DollarSign } from './Icons';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
+import { Save, User, Mail, Phone, Calendar, DollarSign, AlertTriangle } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -73,6 +73,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
     const [monthlyFeeStr, setMonthlyFeeStr] = useState('R$ 50,00');
     const [loading, setLoading] = useState(isEditMode);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
     const toast = useToast();
 
     useEffect(() => {
@@ -167,6 +168,22 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
         }
     };
     
+    const handleArchiveMember = async () => {
+        if (!memberId) return;
+        setIsSubmitting(true);
+        try {
+            await updateMember(memberId, { activityStatus: 'Arquivado' });
+            toast.success('Membro arquivado com sucesso!');
+            setView({ name: 'members' });
+        } catch (error) {
+            console.error("Erro ao arquivar membro", error);
+            toast.error('Falha ao arquivar membro.');
+        } finally {
+            setIsSubmitting(false);
+            setIsArchiveModalOpen(false);
+        }
+    };
+
     if (loading) {
         return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
     }
@@ -272,18 +289,19 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                         
                          <motion.div variants={itemVariants}>
                              <label htmlFor="activityStatus" className="block text-base font-semibold text-foreground dark:text-dark-foreground">Status do Membro</label>
-                            <select id="activityStatus" name="activityStatus" value={member.activityStatus} onChange={handleInputChange} disabled={member.activityStatus === 'Desligado'} className="block w-full mt-2 px-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm disabled:bg-muted/50 dark:disabled:bg-dark-muted/50 disabled:cursor-not-allowed">
+                            <select id="activityStatus" name="activityStatus" value={member.activityStatus} onChange={handleInputChange} disabled={member.activityStatus === 'Desligado' || member.activityStatus === 'Arquivado'} className="block w-full mt-2 px-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm disabled:bg-muted/50 dark:disabled:bg-dark-muted/50 disabled:cursor-not-allowed">
                                 <option value="Ativo">Ativo</option>
                                 <option value="Inativo">Inativo</option>
                                 {member.activityStatus === 'Desligado' && <option value="Desligado">Desligado</option>}
+                                {member.activityStatus === 'Arquivado' && <option value="Arquivado">Arquivado</option>}
                             </select>
                         </motion.div>
                         
                         {isEditMode && (
                             <motion.div variants={itemVariants} className="pt-6 border-t border-border/70 dark:border-dark-border/70 mt-6">
-                                {member.activityStatus === 'Desligado' ? (
+                                {member.activityStatus === 'Desligado' || member.activityStatus === 'Arquivado' ? (
                                     <div className="space-y-4 text-center">
-                                        <h4 className="text-lg font-bold text-warning">Status: Membro Desligado</h4>
+                                        <h4 className="text-lg font-bold text-warning">Status: Membro {member.activityStatus}</h4>
                                         <button
                                             type="button"
                                             onClick={handleReactivate}
@@ -293,13 +311,20 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="text-center">
+                                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                                          <button
                                             type="button"
                                             onClick={handleSetDeparture}
+                                            className="bg-yellow-500/10 text-yellow-600 font-semibold py-2 px-4 rounded-md hover:bg-yellow-500/20 transition-colors"
+                                        >
+                                            Registrar Desligamento
+                                        </button>
+                                         <button
+                                            type="button"
+                                            onClick={() => setIsArchiveModalOpen(true)}
                                             className="bg-destructive/10 text-destructive font-semibold py-2 px-4 rounded-md hover:bg-destructive/20 transition-colors"
                                         >
-                                            Registrar Desligamento do Membro
+                                            Excluir Membro (Arquivar)
                                         </button>
                                     </div>
                                 )}
@@ -315,6 +340,53 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                     </SubmitButton>
                 </motion.div>
             </motion.div>
+            <AnimatePresence>
+                {isArchiveModalOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                        onClick={() => setIsArchiveModalOpen(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                            className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="text-center">
+                                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                                    <AlertTriangle className="h-6 w-6 text-destructive" aria-hidden="true" />
+                                </div>
+                                <h3 className="mt-4 text-xl font-bold font-display text-foreground dark:text-dark-foreground">Arquivar Membro?</h3>
+                                <div className="mt-2 text-sm text-muted-foreground space-y-3">
+                                    <p>O membro será removido das listas ativas, mas todos os seus registros financeiros e de pagamentos serão mantidos para fins históricos.</p>
+                                    <p>Você poderá reativar o membro posteriormente se necessário.</p>
+                                </div>
+                            </div>
+                            <div className="mt-6 flex justify-center gap-4">
+                                <button
+                                    type="button"
+                                    className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted"
+                                    onClick={() => setIsArchiveModalOpen(false)}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                                    onClick={handleArchiveMember}
+                                    disabled={isSubmitting}
+                                >
+                                    {isSubmitting ? 'Arquivando...' : 'Sim, Arquivar'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </form>
     );
 };

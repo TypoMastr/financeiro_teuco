@@ -190,10 +190,12 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
         componentState: { openYear, isInfoExpanded, isLeavesExpanded }
     };
 
+    // FIX: Added 'Arquivado' style to match the ActivityStatus type definition.
     const activityStatusStyles: { [key in ActivityStatus]: string } = {
         Ativo: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
         Inativo: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
-        Desligado: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+        Desligado: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+        Arquivado: 'bg-gray-300 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
     };
     
     return (

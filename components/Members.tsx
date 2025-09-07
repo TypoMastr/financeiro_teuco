@@ -12,6 +12,8 @@ const statusStyles: { [key in PaymentStatus]: { bg: string, text: string, ring: 
   [PaymentStatus.Adiantado]: { bg: 'bg-blue-100 dark:bg-blue-500/10', text: 'text-blue-700 dark:text-blue-300', ring: 'ring-blue-500/20', name: 'Adiantado' },
   [PaymentStatus.Desligado]: { bg: 'bg-gray-200 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-400', ring: 'ring-gray-500/20', name: 'Desligado' },
   [PaymentStatus.Isento]: { bg: 'bg-cyan-100 dark:bg-cyan-500/10', text: 'text-cyan-700 dark:text-cyan-300', ring: 'ring-cyan-500/20', name: 'Isento' },
+  [PaymentStatus.Arquivado]: { bg: 'bg-gray-300 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', ring: 'ring-gray-500/20', name: 'Arquivado' },
+  [PaymentStatus.EmLicenca]: { bg: 'bg-blue-100 dark:bg-blue-500/10', text: 'text-blue-700 dark:text-blue-300', ring: 'ring-blue-500/20', name: 'Em Licença' },
 };
 
 const formatPhone = (phone: string) => {
@@ -210,15 +212,21 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
         if (!searchMatch) return false;
 
         // Filter by activity status
-        const activityMatch = filters.activity === 'all' || member.activityStatus === filters.activity;
+        let activityMatch = false;
+        if (filters.activity === 'OnLeave') {
+            activityMatch = member.onLeave === true;
+        } else if (filters.activity === 'all') {
+            activityMatch = member.activityStatus !== 'Arquivado';
+        } else {
+            activityMatch = member.activityStatus === filters.activity;
+        }
         if (!activityMatch) return false;
 
-        // Filter by payment status (only if a specific status is selected)
+        // Filter by payment status
         if (filters.status !== 'all') {
           return member.paymentStatus === filters.status;
         }
-
-        // If payment status is 'all', include all that matched activity
+        
         return true;
       })
       .sort((a, b) => {
@@ -243,6 +251,8 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
     visible: { y: 0, opacity: 1, transition: { ease: "easeOut", duration: 0.4 } },
   };
   
+  const selectClass = "w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+
 
   return (
     <div className="space-y-6">
@@ -251,7 +261,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
         </motion.div>
       
         <motion.div variants={containerVariants} className="flex flex-col items-center gap-4">
-            <motion.div variants={itemVariants} className="w-full max-w-3xl flex flex-col sm:flex-row gap-3 sm:gap-4 items-start">
+            <motion.div variants={itemVariants} className="w-full max-w-3xl flex flex-col sm:flex-row gap-3 sm:gap-4 items-end">
                 <div className="flex-grow w-full space-y-3">
                     <div className="relative flex-grow">
                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -263,22 +273,33 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                             onChange={e => setSearchTerm(e.target.value)}
                         />
                     </div>
-                     <div 
-                        className="hidden sm:flex flex-wrap items-center justify-center gap-3"
-                    >
-                         <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-muted-foreground">Status:</span>
-                            <FilterChip label="Ativos" value="Ativo" selected={filters.activity === 'Ativo'} onClick={() => handleActivityFilterChange('Ativo')} />
-                            <FilterChip label="Inativos" value="Inativo" selected={filters.activity === 'Inativo'} onClick={() => handleActivityFilterChange('Inativo')} />
-                            <FilterChip label="Desligados" value="Desligado" selected={filters.activity === 'Desligado'} onClick={() => handleActivityFilterChange('Desligado')} />
-                            <FilterChip label="Todos" value="all" selected={filters.activity === 'all'} onClick={() => handleActivityFilterChange('all')} />
+                     <div className="hidden sm:grid sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-2">
+                            <label className="text-xs font-semibold text-muted-foreground ml-1 mb-1 block">Status do Membro</label>
+                            <select
+                                value={filters.activity}
+                                onChange={(e) => handleActivityFilterChange(e.target.value)}
+                                className={selectClass}
+                            >
+                                <option value="Ativo">Membros Ativos</option>
+                                <option value="OnLeave">Em Licença</option>
+                                <option value="Inativo">Membros Inativos</option>
+                                <option value="Desligado">Membros Desligados</option>
+                                <option value="Arquivado">Membros Arquivados</option>
+                                <option value="all">Todos (exceto arquivados)</option>
+                            </select>
                         </div>
-                        <div className="h-5 w-px bg-border dark:bg-dark-border"></div>
-                         <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-muted-foreground">Pagamento:</span>
-                            <FilterChip label="Pendentes" value={PaymentStatus.Atrasado} selected={filters.status === PaymentStatus.Atrasado} onClick={() => setFilters(f => ({...f, status: PaymentStatus.Atrasado}))} />
-                            <FilterChip label="Em Dia" value={PaymentStatus.EmDia} selected={filters.status === PaymentStatus.EmDia} onClick={() => setFilters(f => ({...f, status: PaymentStatus.EmDia}))} />
-                            <FilterChip label="Todos" value="all" selected={filters.status === 'all'} onClick={() => setFilters(f => ({...f, status: 'all'}))} />
+                        <div>
+                            <label className="text-xs font-semibold text-muted-foreground ml-1 mb-1 block">Pagamento</label>
+                            <select
+                                value={filters.status}
+                                onChange={(e) => setFilters(f => ({...f, status: e.target.value}))}
+                                className={selectClass}
+                            >
+                                <option value="all">Todos</option>
+                                <option value={PaymentStatus.Atrasado}>Pendentes</option>
+                                <option value={PaymentStatus.EmDia}>Em Dia</option>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -303,9 +324,11 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                     className="w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
                  >
                     <option value="Ativo">Membros Ativos</option>
+                    <option value="OnLeave">Em Licença</option>
                     <option value="Inativo">Membros Inativos</option>
                     <option value="Desligado">Membros Desligados</option>
-                    <option value="all">Todos os Membros</option>
+                    <option value="Arquivado">Membros Arquivados</option>
+                    <option value="all">Todos (exceto arquivados)</option>
                  </select>
                  <select
                     value={filters.status}

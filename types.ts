@@ -6,9 +6,11 @@ export enum PaymentStatus {
   Adiantado = 'Adiantado',
   Desligado = 'Desligado',
   Isento = 'Isento',
+  Arquivado = 'Arquivado',
+  EmLicenca = 'Em Licença',
 }
 
-export type ActivityStatus = 'Ativo' | 'Inativo' | 'Desligado';
+export type ActivityStatus = 'Ativo' | 'Inativo' | 'Desligado' | 'Arquivado';
 export type SortOption = 'name_asc' | 'name_desc';
 export type ItemType = 'account' | 'category' | 'payee' | 'tag' | 'project';
 

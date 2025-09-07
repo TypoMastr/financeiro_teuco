@@ -259,11 +259,38 @@ const isDuringLeave = (date: Date, leaves: Leave[]): boolean => {
     });
 };
 
+const isCurrentlyOnLeave = (leaves: Leave[]): boolean => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0); 
+    
+    return leaves.some(leave => {
+        const startDate = new Date(leave.startDate + 'T00:00:00Z');
+        const endDate = leave.endDate ? new Date(leave.endDate + 'T23:59:59Z') : null;
+        
+        if (endDate) {
+            return now >= startDate && now <= endDate;
+        }
+        return now >= startDate;
+    });
+};
+
+
 const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLeaves: Leave[]): Member => {
+    const currentlyOnLeave = isCurrentlyOnLeave(memberLeaves);
     const memberWithDefaults = {
         ...member,
-        onLeave: member.on_leave || false,
+        onLeave: currentlyOnLeave,
     };
+
+    if (memberWithDefaults.onLeave) {
+        return {
+            ...memberWithDefaults,
+            paymentStatus: PaymentStatus.EmLicenca,
+            overdueMonthsCount: 0,
+            overdueMonths: [],
+            totalDue: 0,
+        };
+    }
 
     if (memberWithDefaults.isExempt) {
         return {
@@ -275,7 +302,8 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
         };
     }
     
-    if (memberWithDefaults.activityStatus === 'Desligado') {
+    const finalStatuses = ['Desligado', 'Arquivado'];
+    if (finalStatuses.includes(memberWithDefaults.activityStatus)) {
         const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
         const overdueMonths: OverdueMonth[] = [];
         let currentDate = new Date(memberWithDefaults.joinDate);
@@ -289,9 +317,15 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
             }
             currentDate.setMonth(currentDate.getMonth() + 1);
         }
+        
+        let paymentStatus = PaymentStatus.Desligado;
+        if (memberWithDefaults.activityStatus === 'Arquivado') {
+            paymentStatus = PaymentStatus.Arquivado;
+        }
+
         return {
             ...memberWithDefaults,
-            paymentStatus: PaymentStatus.Desligado,
+            paymentStatus,
             overdueMonthsCount: overdueMonths.length,
             overdueMonths,
             totalDue: overdueMonths.reduce((sum, item) => sum + item.amount, 0),
@@ -1443,7 +1477,8 @@ export const getChatbotContextData = async () => {
         projects,
         tags,
         bills,
-        stats
+        stats,
+        allLeaves
     ] = await Promise.all([
         getMembers(),
         transactionsApi.getAll(),
@@ -1453,8 +1488,20 @@ export const getChatbotContextData = async () => {
         projectsApi.getAll(),
         tagsApi.getAll(),
         payableBillsApi.getAll(),
-        getDashboardStats()
+        getDashboardStats(),
+        supabase.from('leaves').select('*')
     ]);
+
+    if (allLeaves.error) throw allLeaves.error;
+    const leavesData = convertObjectKeys(allLeaves.data, toCamelCase) as Leave[];
+
+    const leavesByMember = new Map<string, Leave[]>();
+    leavesData.forEach(leave => {
+        if (!leavesByMember.has(leave.memberId)) {
+            leavesByMember.set(leave.memberId, []);
+        }
+        leavesByMember.get(leave.memberId)!.push(leave);
+    });
 
     const categoryMap = new Map(categories.map(c => [c.id, c.name]));
     const payeeMap = new Map(payees.map(p => [p.id, p.name]));
@@ -1467,16 +1514,27 @@ export const getChatbotContextData = async () => {
             ...stats,
             dataHoraAtual: new Date().toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })
         },
-        membros: members.map(({ name, email, phone, birthday, monthlyFee, activityStatus, paymentStatus, totalDue }) => ({ 
-            name, 
-            email, 
-            phone, 
-            birthday, 
-            valorMensalidade: monthlyFee, 
-            activityStatus, 
-            paymentStatus, 
-            totalDue 
-        })),
+// FIX: Included `onLeave` and `isExempt` in the destructuring and returned object to provide more complete context to the chatbot.
+        membros: members.map(({ id, name, email, phone, birthday, monthlyFee, activityStatus, paymentStatus, totalDue, onLeave, isExempt }) => {
+            const memberLeaves = leavesByMember.get(id) || [];
+            return {
+                name, 
+                email, 
+                phone, 
+                birthday, 
+                valorMensalidade: monthlyFee, 
+                activityStatus, 
+                paymentStatus, 
+                totalDue,
+                onLeave,
+                isExempt,
+                historicoLicencas: memberLeaves.map(l => ({
+                    dataInicio: l.startDate,
+                    dataFim: l.endDate,
+                    motivo: l.reason
+                }))
+            };
+        }),
         ultimasTransacoes: transactions.slice(0, 100).map(t => ({
             descricao: t.description,
             valor: t.amount,
