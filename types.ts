@@ -17,6 +17,14 @@ export interface OverdueMonth {
   amount: number;
 }
 
+export interface Leave {
+  id: string;
+  memberId: string;
+  startDate: string;
+  endDate?: string;
+  reason?: string;
+}
+
 export interface Member {
   id: string;
   name: string;
@@ -27,6 +35,7 @@ export interface Member {
   monthlyFee: number;
   activityStatus: ActivityStatus;
   isExempt: boolean;
+  onLeave: boolean;
   paymentStatus: PaymentStatus;
   overdueMonthsCount: number;
   overdueMonths: OverdueMonth[];
@@ -114,7 +123,7 @@ export interface PayableBill {
 }
 
 export type ActionType = 'create' | 'update' | 'delete';
-export type EntityType = 'member' | 'payment' | 'transaction' | 'category' | 'tag' | 'payee' | 'project' | 'account' | 'bill';
+export type EntityType = 'member' | 'payment' | 'transaction' | 'category' | 'tag' | 'payee' | 'project' | 'account' | 'bill' | 'leave';
 
 export interface LogEntry {
   id: string;
@@ -171,4 +180,5 @@ export type ViewState =
   | { name: 'attachment-view', attachmentUrl: string, returnView: ViewState }
   | { name: 'batch-transaction-form', returnView: ViewState }
   | { name: 'ofx-import-form', returnView: ViewState }
+  | { name: 'leave-form', memberId: string, leaveId?: string, returnView: ViewState }
   | { name: 'chatbot' };

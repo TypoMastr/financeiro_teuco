@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType } from '../types';
+import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType, Leave } from '../types';
 
 const SUPABASE_URL = "https://qoqubqskbzwcsvcwrxdm.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcXVicXNrYnp3Y3N2Y3dyeGRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4NjAzMDUsImV4cCI6MjA3MjQzNjMwNX0.00KWOxdDd34DptwigNsMz3VAz5A1lTL13fBHcApPWSA";
@@ -97,7 +97,10 @@ const FIELD_LABELS: Record<string, string> = {
     initialBalance: 'Saldo Inicial',
     paymentDate: 'Data do Pagamento',
     referenceMonth: 'Mês de Referência',
-    memberId: 'Membro'
+    memberId: 'Membro',
+    startDate: 'Data de Início',
+    endDate: 'Data Final',
+    reason: 'Motivo',
 };
 
 const formatLogValue = (key: string, value: any, lookupData?: LookupData): string => {
@@ -141,6 +144,8 @@ const formatLogValue = (key: string, value: any, lookupData?: LookupData): strin
         case 'paidDate':
         case 'paymentDate':
         case 'birthday':
+        case 'startDate':
+        case 'endDate':
             try {
                 const date = new Date(value.includes('T') ? value : value + 'T12:00:00Z');
                 return `"${date.toLocaleDateString('pt-BR')}"`;
@@ -169,11 +174,11 @@ const generateDetailedUpdateMessage = (
 ): string => {
     const changes: string[] = [];
     const oldDataCamel = convertObjectKeys(oldData, toCamelCase);
-    const newDataCamel = convertObjectKeys(newData, toCamelCase);
+    const newDataCamel = convertObjectKeys(newData, toSnakeCase);
 
     const allKeys = new Set([...Object.keys(oldDataCamel), ...Object.keys(newDataCamel)]);
 
-    const ignoreFields = ['id', 'created_at', 'updated_at', 'transactionId', 'payableBillId', 'recurringId', 'installmentGroupId', 'installmentInfo', 'attachmentUrl', 'attachmentFilename', 'overdueMonthsCount', 'overdueMonths', 'totalDue', 'paymentStatus', 'undoData', 'currentBalance', 'password'];
+    const ignoreFields = ['id', 'created_at', 'updated_at', 'transactionId', 'payableBillId', 'recurringId', 'installmentGroupId', 'installmentInfo', 'attachmentUrl', 'attachmentFilename', 'overdueMonthsCount', 'overdueMonths', 'totalDue', 'paymentStatus', 'undoData', 'currentBalance', 'password', 'onLeave'];
 
     for (const key of allKeys) {
         if (ignoreFields.includes(key)) {
@@ -246,11 +251,23 @@ const cleanTransactionDataForSupabase = (transactionData: any) => {
 };
 
 // --- BUSINESS LOGIC ---
-const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => {
-    // Handle exempt status first
-    if (member.isExempt) {
+const isDuringLeave = (date: Date, leaves: Leave[]): boolean => {
+    return leaves.some(leave => {
+        const startDate = new Date(leave.startDate + 'T00:00:00Z');
+        const endDate = leave.endDate ? new Date(leave.endDate + 'T23:59:59Z') : new Date(); // If no end date, assume leave is active until today
+        return date >= startDate && date <= endDate;
+    });
+};
+
+const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLeaves: Leave[]): Member => {
+    const memberWithDefaults = {
+        ...member,
+        onLeave: member.on_leave || false,
+    };
+
+    if (memberWithDefaults.isExempt) {
         return {
-            ...member,
+            ...memberWithDefaults,
             paymentStatus: PaymentStatus.Isento,
             overdueMonthsCount: 0,
             overdueMonths: [],
@@ -258,25 +275,22 @@ const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => 
         };
     }
     
-    // Handle special statuses first
-    if (member.activityStatus === 'Desligado') {
-        const memberPayments = allPayments.filter(p => p.memberId === member.id);
+    if (memberWithDefaults.activityStatus === 'Desligado') {
         const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
         const overdueMonths: OverdueMonth[] = [];
-        let currentDate = new Date(member.joinDate);
+        let currentDate = new Date(memberWithDefaults.joinDate);
         currentDate.setDate(1);
-        const departureDate = new Date(); // Use current date for calculation as departureDate column doesn't exist
+        const departureDate = new Date(); 
 
-        // Calculate overdue months only up to the departure date
         while (currentDate < departureDate) {
             const monthStr = currentDate.toISOString().slice(0, 7);
-            if (!paidMonths.has(monthStr)) {
-                overdueMonths.push({ month: monthStr, amount: member.monthlyFee });
+            if (!paidMonths.has(monthStr) && !isDuringLeave(currentDate, memberLeaves)) {
+                overdueMonths.push({ month: monthStr, amount: memberWithDefaults.monthlyFee });
             }
             currentDate.setMonth(currentDate.getMonth() + 1);
         }
         return {
-            ...member,
+            ...memberWithDefaults,
             paymentStatus: PaymentStatus.Desligado,
             overdueMonthsCount: overdueMonths.length,
             overdueMonths,
@@ -284,19 +298,17 @@ const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => 
         };
     }
     
-    // Default logic for active/inactive members
-    const memberPayments = allPayments.filter(p => p.memberId === member.id);
     const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
     const overdueMonths: OverdueMonth[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    let currentDate = new Date(member.joinDate);
+    let currentDate = new Date(memberWithDefaults.joinDate);
     currentDate.setDate(1);
 
     while (currentDate < today) {
         const monthStr = currentDate.toISOString().slice(0, 7);
-        if (!paidMonths.has(monthStr)) {
-            overdueMonths.push({ month: monthStr, amount: member.monthlyFee });
+        if (!paidMonths.has(monthStr) && !isDuringLeave(currentDate, memberLeaves)) {
+            overdueMonths.push({ month: monthStr, amount: memberWithDefaults.monthlyFee });
         }
         currentDate.setMonth(currentDate.getMonth() + 1);
     }
@@ -314,7 +326,7 @@ const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => 
     }
     
     return {
-        ...member,
+        ...memberWithDefaults,
         paymentStatus,
         overdueMonthsCount: overdueMonths.length,
         overdueMonths,
@@ -352,7 +364,8 @@ const createCrudFunctions = <T extends { id: string, name: string }>(tableName: 
         const { data, error } = await supabase.from(tableName).update(payload).eq('id', itemId).select().single();
         if (error) throw error;
         const newItem = convertObjectKeys(data, toCamelCase);
-        const description = generateDetailedUpdateMessage(oldData, data, entityLabel, nameAccessor(newItem));
+        const lookupData = await getLookupData();
+        const description = generateDetailedUpdateMessage(oldData, data, entityLabel, nameAccessor(newItem), lookupData);
         await addLogEntry(description, 'update', entityType, oldData);
         return convertObjectKeys(data, toCamelCase);
     },
@@ -388,7 +401,8 @@ export const accountsApi = {
         if (findError) throw findError;
         const { data, error } = await supabase.from('accounts').update({ name: itemData.name, initial_balance: itemData.initialBalance }).eq('id', itemId).select().single();
         if (error) throw error;
-        const description = generateDetailedUpdateMessage(oldData, data, 'Conta', data.name);
+        const lookupData = await getLookupData();
+        const description = generateDetailedUpdateMessage(oldData, data, 'Conta', data.name, lookupData);
         await addLogEntry(description, 'update', 'account', oldData);
         return convertObjectKeys(data, toCamelCase);
     },
@@ -407,29 +421,47 @@ export const getMembers = async (): Promise<Member[]> => {
     if (membersError) throw membersError;
     const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
     if (paymentsError) throw paymentsError;
+    const { data: leavesData, error: leavesError } = await supabase.from('leaves').select('*');
+    if (leavesError) throw leavesError;
 
     const rawMembers = convertObjectKeys(membersData, toCamelCase);
     const rawPayments = convertObjectKeys(paymentsData, toCamelCase);
+    const rawLeaves = convertObjectKeys(leavesData, toCamelCase);
+    const leavesByMember = new Map<string, Leave[]>();
+    rawLeaves.forEach((leave: Leave) => {
+        if (!leavesByMember.has(leave.memberId)) {
+            leavesByMember.set(leave.memberId, []);
+        }
+        leavesByMember.get(leave.memberId)!.push(leave);
+    });
 
-    return rawMembers.map((m: any) => calculateMemberDetails(m, rawPayments));
+    return rawMembers.map((m: any) => {
+        const memberPayments = rawPayments.filter((p: Payment) => p.memberId === m.id);
+        const memberLeaves = leavesByMember.get(m.id) || [];
+        return calculateMemberDetails(m, memberPayments, memberLeaves);
+    });
 };
 
 export const getMemberById = async (id: string): Promise<Member | undefined> => {
     const { data, error } = await supabase.from('members').select('*').eq('id', id).single();
     if (error) { if(error.code === 'PGRST116') return undefined; throw error; }
     
-    const rawPayments = await getPaymentsByMember(id);
+    const [rawPayments, rawLeaves] = await Promise.all([
+        getPaymentsByMember(id),
+        leavesApi.getByMember(id)
+    ]);
+    
     const rawMember = convertObjectKeys(data, toCamelCase);
     
-    return calculateMemberDetails(rawMember, rawPayments);
+    return calculateMemberDetails(rawMember, rawPayments, rawLeaves);
 };
 
-export const addMember = async (memberData: Omit<Member, 'id' | 'paymentStatus' | 'overdueMonthsCount' | 'overdueMonths' | 'totalDue'>): Promise<Member> => {
+export const addMember = async (memberData: Omit<Member, 'id' | 'paymentStatus' | 'overdueMonthsCount' | 'overdueMonths' | 'totalDue' | 'onLeave'>): Promise<Member> => {
     const { data, error } = await supabase.from('members').insert(convertObjectKeys(memberData, toSnakeCase)).select().single();
     if (error) throw error;
     const newMember = convertObjectKeys(data, toCamelCase);
     await addLogEntry(`Adicionado novo membro: "${newMember.name}"`, 'create', 'member', { id: newMember.id });
-    return calculateMemberDetails(newMember, []);
+    return calculateMemberDetails(newMember, [], []);
 };
 
 export const updateMember = async (memberId: string, memberData: Partial<Omit<Member, 'id'>>): Promise<Member> => {
@@ -442,8 +474,11 @@ export const updateMember = async (memberId: string, memberData: Partial<Omit<Me
     const description = generateDetailedUpdateMessage(oldData, data, 'Membro', data.name, lookupData);
     await addLogEntry(description, 'update', 'member', oldData);
     
-    const rawPayments = await getPaymentsByMember(memberId);
-    return calculateMemberDetails(convertObjectKeys(data, toCamelCase), rawPayments);
+    const [rawPayments, rawLeaves] = await Promise.all([
+        getPaymentsByMember(memberId),
+        leavesApi.getByMember(memberId)
+    ]);
+    return calculateMemberDetails(convertObjectKeys(data, toCamelCase), rawPayments, rawLeaves);
 };
 
 export const getPaymentsByMember = async (memberId: string): Promise<Payment[]> => {
@@ -683,6 +718,118 @@ export const updateTransactionAndPaymentLink = async (
     return { warning };
 };
 
+const handleLeaveSchemaError = (error: any) => {
+    // Supabase error for missing table is PGRST205
+    // Postgres error for missing column is 42703
+    if (error.code === 'PGRST205' || (error.code === '42703' && error.message.includes('on_leave'))) {
+         console.error('Database schema is out of date. The "Leave of Absence" feature requires the "leaves" table and the "on_leave" column in the "members" table.', error);
+         throw new Error('A funcionalidade de licenças não está configurada no banco de dados.');
+    }
+    throw error;
+};
+
+export const leavesApi = {
+    getByMember: async (memberId: string): Promise<Leave[]> => {
+        const { data, error } = await supabase
+            .from('leaves')
+            .select('*')
+            .eq('member_id', memberId)
+            .order('start_date', { ascending: false });
+        if (error) {
+            if (error.code === 'PGRST205') {
+                console.warn('Supabase warning: "leaves" table not found. The "Leave of Absence" feature will be disabled.');
+                return [];
+            }
+            throw error;
+        }
+        return convertObjectKeys(data, toCamelCase);
+    },
+    add: async (leaveData: Omit<Leave, 'id'>): Promise<Leave> => {
+        try {
+            const { error: memberUpdateError } = await supabase.from('members').update({ on_leave: true }).eq('id', leaveData.memberId);
+            if (memberUpdateError) throw memberUpdateError;
+
+            const payload = convertObjectKeys(leaveData, toSnakeCase);
+            const { data, error } = await supabase.from('leaves').insert(payload).select().single();
+            if (error) throw error;
+            
+            const newLeave = convertObjectKeys(data, toCamelCase);
+            const lookupData = await getLookupData();
+            const memberName = lookupData.members.get(newLeave.memberId) || 'desconhecido';
+            const startDate = new Date(newLeave.startDate + 'T12:00:00Z').toLocaleDateString('pt-BR');
+            await addLogEntry(`Registrada licença para "${memberName}" a partir de ${startDate}`, 'create', 'leave', { id: newLeave.id });
+            return newLeave;
+        } catch (error: any) {
+            handleLeaveSchemaError(error);
+            return null as never; // Should not be reached
+        }
+    },
+    update: async (leaveId: string, leaveData: Partial<Omit<Leave, 'id' | 'memberId'>>): Promise<Leave> => {
+        try {
+            const { data: oldData, error: findError } = await supabase.from('leaves').select('*').eq('id', leaveId).single();
+            if (findError) throw findError;
+            
+            const payload = convertObjectKeys(leaveData, toSnakeCase);
+            const { data, error } = await supabase.from('leaves').update(payload).eq('id', leaveId).select().single();
+            if (error) throw error;
+
+            const updatedLeave = convertObjectKeys(data, toCamelCase) as Leave;
+
+            if (updatedLeave.endDate) {
+                const { data: otherLeaves, error: otherLeavesError } = await supabase.from('leaves').select('id').eq('member_id', updatedLeave.memberId).is('end_date', null);
+                if (otherLeavesError) throw otherLeavesError;
+
+                if (!otherLeaves || otherLeaves.length === 0) {
+                    const { error: memberUpdateError } = await supabase.from('members').update({ on_leave: false }).eq('id', updatedLeave.memberId);
+                    if (memberUpdateError) throw memberUpdateError;
+                }
+            } else {
+                const { error: memberUpdateError } = await supabase.from('members').update({ on_leave: true }).eq('id', updatedLeave.memberId);
+                if (memberUpdateError) throw memberUpdateError;
+            }
+
+            const lookupData = await getLookupData();
+            const memberName = lookupData.members.get(updatedLeave.memberId) || 'desconhecido';
+            const startDate = new Date(updatedLeave.startDate + 'T12:00:00Z').toLocaleDateString('pt-BR');
+            const oldEndDate = oldData.end_date ? `"${new Date(oldData.end_date + 'T12:00:00Z').toLocaleDateString('pt-BR')}"` : '"ativa"';
+            const newEndDate = updatedLeave.endDate ? `"${new Date(updatedLeave.endDate + 'T12:00:00Z').toLocaleDateString('pt-BR')}"` : '"ativa"';
+            
+            let description = `Licença de "${memberName}" (início em ${startDate}) foi atualizada.`;
+            if (oldEndDate !== newEndDate) {
+                description += ` Data Final alterada de ${oldEndDate} para ${newEndDate}.`;
+            }
+            await addLogEntry(description, 'update', 'leave', oldData);
+            return updatedLeave;
+        } catch (error: any) {
+            handleLeaveSchemaError(error);
+            return null as never; // Should not be reached
+        }
+    },
+    remove: async (leaveId: string): Promise<void> => {
+        try {
+            const { data: oldData, error: findError } = await supabase.from('leaves').select('*').eq('id', leaveId).single();
+            if (findError) throw findError;
+            
+            const { error } = await supabase.from('leaves').delete().eq('id', leaveId);
+            if (error) throw error;
+            
+            const { data: otherLeaves, error: otherLeavesError } = await supabase.from('leaves').select('id').eq('member_id', oldData.member_id).is('end_date', null);
+            if (otherLeavesError) throw otherLeavesError;
+
+            if (!otherLeaves || otherLeaves.length === 0) {
+                const { error: memberUpdateError } = await supabase.from('members').update({ on_leave: false }).eq('id', oldData.member_id);
+                if (memberUpdateError) throw memberUpdateError;
+            }
+
+            const lookupData = await getLookupData();
+            const memberName = lookupData.members.get(oldData.member_id) || 'desconhecido';
+            const startDate = new Date(oldData.start_date + 'T12:00:00Z').toLocaleDateString('pt-BR');
+            await addLogEntry(`Removida licença de "${memberName}" (início em ${startDate})`, 'delete', 'leave', oldData);
+        } catch (error: any) {
+            handleLeaveSchemaError(error);
+        }
+    },
+};
 
 // --- API: FINANCIAL & TRANSACTIONS ---
 export const getAccountsWithBalance = async (): Promise<Account[]> => {

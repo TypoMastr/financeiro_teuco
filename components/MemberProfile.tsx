@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 // FIX: Import types from the corrected types.ts file.
-import { Member, Payment, Transaction, ViewState, Account, ActivityStatus } from '../types';
+import { Member, Payment, Transaction, ViewState, Account, ActivityStatus, Leave } from '../types';
 // FIX: Import missing functions from api.ts.
-import { getMemberById, getPaymentsByMember, deletePayment, addIncomeTransactionAndPayment, accountsApi, getPaymentDetails, updatePaymentAndTransaction } from '../services/api';
+import { getMemberById, getPaymentsByMember, deletePayment, addIncomeTransactionAndPayment, accountsApi, getPaymentDetails, updatePaymentAndTransaction, leavesApi } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle } from './Icons';
+import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle, Briefcase } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -50,12 +50,16 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
     
     const [member, setMember] = useState<Member | null>(null);
     const [payments, setPayments] = useState<Payment[]>([]);
+    const [leaves, setLeaves] = useState<Leave[]>([]);
     const [loading, setLoading] = useState(true);
     const [openYear, setOpenYear] = useState(componentState?.openYear || new Date().getFullYear().toString());
     const [expandedDetail, setExpandedDetail] = useState<{ id: string; type: 'comment' | 'attachment' | 'delete' } | null>(null);
     const isInitialLoad = useRef(true);
     const toast = useToast();
     const [isInfoExpanded, setIsInfoExpanded] = useState(false);
+    const [isLeavesExpanded, setIsLeavesExpanded] = useState(false);
+    const [leaveToDelete, setLeaveToDelete] = useState<Leave | null>(null);
+
 
     useEffect(() => {
         const mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -71,18 +75,35 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
         return () => mediaQuery.removeEventListener('change', updateExpandedState);
     }, [componentState]);
 
+    useEffect(() => {
+        const mediaQuery = window.matchMedia('(min-width: 1024px)');
+        const updateLeavesExpandedState = () => setIsLeavesExpanded(mediaQuery.matches || (member?.onLeave || false));
+        
+        if (typeof componentState?.isLeavesExpanded === 'boolean') {
+            setIsLeavesExpanded(componentState.isLeavesExpanded);
+        } else {
+            updateLeavesExpandedState();
+        }
+        
+        mediaQuery.addEventListener('change', updateLeavesExpandedState);
+        return () => mediaQuery.removeEventListener('change', updateLeavesExpandedState);
+    }, [componentState, member?.onLeave]);
+
+
     const fetchData = useCallback(async (isUpdate = false) => {
         if (!isUpdate && isInitialLoad.current) {
             setLoading(true);
         }
         try {
-            const [memberData, paymentsData] = await Promise.all([
+            const [memberData, paymentsData, leavesData] = await Promise.all([
                 getMemberById(memberId),
-                getPaymentsByMember(memberId)
+                getPaymentsByMember(memberId),
+                leavesApi.getByMember(memberId)
             ]);
             if (memberData) {
                 setMember(memberData);
                 setPayments(paymentsData);
+                setLeaves(leavesData);
             } else {
                 setView({ name: 'members' });
             }
@@ -103,10 +124,18 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
         fetchData();
     }, [fetchData]);
 
-    const handleConfirmDelete = async (paymentId: string) => {
+    const handleConfirmPaymentDelete = async (paymentId: string) => {
         await deletePayment(paymentId);
         toast.success("Pagamento excluído com sucesso.");
         setExpandedDetail(null);
+        await fetchData(true);
+    };
+
+    const handleConfirmLeaveDelete = async () => {
+        if (!leaveToDelete) return;
+        await leavesApi.remove(leaveToDelete.id);
+        toast.success("Licença excluída com sucesso.");
+        setLeaveToDelete(null);
         await fetchData(true);
     };
     
@@ -117,10 +146,18 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
             setExpandedDetail({ id, type });
         }
     };
+    
+    const isDuringLeave = (date: Date, leaves: Leave[]): boolean => {
+        return leaves.some(leave => {
+            const startDate = new Date(leave.startDate + 'T00:00:00Z');
+            const endDate = leave.endDate ? new Date(leave.endDate + 'T23:59:59Z') : new Date(); // If no end date, assume leave is active until today
+            return date >= startDate && date <= endDate;
+        });
+    };
 
     const paymentMonthsByYear = useMemo(() => {
         if (!member) return {};
-        const groups: Record<string, { month: string, monthName: string, payment: Payment | null }[]> = {};
+        const groups: Record<string, { month: string, monthName: string, payment: Payment | null, onLeave: boolean }[]> = {};
         let currentDate = new Date(member.joinDate);
         currentDate.setDate(1);
         
@@ -135,13 +172,14 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
             groups[year].push({
                 month: monthStr,
                 monthName: currentDate.toLocaleDateString('pt-BR', { month: 'long'}),
-                payment: payments.find(p => p.referenceMonth === monthStr) || null
+                payment: payments.find(p => p.referenceMonth === monthStr) || null,
+                onLeave: isDuringLeave(currentDate, leaves),
             });
             currentDate.setMonth(currentDate.getMonth() + 1);
         }
         Object.keys(groups).forEach(year => groups[year].reverse());
         return groups;
-    }, [member, payments]);
+    }, [member, payments, leaves]);
 
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
     if (!member) return <div className="text-center py-10">Membro não encontrado. <button onClick={() => setView({ name: 'members' })} className="text-primary underline">Voltar para a lista</button></div>;
@@ -149,7 +187,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
     const currentView: ViewState = {
         name: 'member-profile',
         id: memberId,
-        componentState: { openYear, isInfoExpanded }
+        componentState: { openYear, isInfoExpanded, isLeavesExpanded }
     };
 
     const activityStatusStyles: { [key in ActivityStatus]: string } = {
@@ -191,6 +229,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                 <h2 className="text-2xl sm:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">{member.name}</h2>
                                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-2 mt-2 text-sm text-muted-foreground">
                                    <div className={`py-1 px-3 rounded-full font-semibold text-xs ${activityStatusStyles[member.activityStatus]}`}>{member.activityStatus}</div>
+                                   {member.onLeave && <div className="py-1 px-3 rounded-full font-semibold text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Em Licença</div>}
                                    <span className="py-1 px-3 rounded-full font-semibold text-xs bg-muted dark:bg-dark-muted text-muted-foreground dark:text-dark-muted-foreground flex items-center gap-1.5"><Calendar className="h-3 w-3"/>Desde {new Date(member.joinDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric'})}</span>
                                 </div>
                                 {/* Departure date display removed due to schema mismatch error */}
@@ -207,11 +246,9 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                 variants={itemVariants}
                 className="grid grid-cols-1 lg:grid-cols-3 gap-6"
             >
-                <motion.div 
-                    variants={itemVariants} 
-                    className="lg:col-span-1"
-                >
+                <div className="lg:col-span-1 space-y-6">
                     <motion.div 
+                        variants={itemVariants} 
                         className="bg-card dark:bg-dark-card rounded-xl p-4 sm:p-6 border border-border dark:border-dark-border"
                         layout
                         transition={{ duration: 0.3, ease: 'easeInOut' }}
@@ -256,7 +293,68 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                             )}
                         </AnimatePresence>
                     </motion.div>
-                </motion.div>
+                    
+                    <motion.div 
+                        variants={itemVariants} 
+                        className="bg-card dark:bg-dark-card rounded-xl p-4 sm:p-6 border border-border dark:border-dark-border"
+                        layout
+                    >
+                        <button 
+                            onClick={() => setIsLeavesExpanded(!isLeavesExpanded)}
+                            className="w-full flex justify-between items-center"
+                            aria-expanded={isLeavesExpanded}
+                            aria-controls="member-leaves-details"
+                        >
+                            <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Licenças</h3>
+                            <motion.div animate={{ rotate: isLeavesExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                            </motion.div>
+                        </button>
+                        
+                        <AnimatePresence initial={false}>
+                        {isLeavesExpanded && (
+                            <motion.div
+                                id="member-leaves-details"
+                                key="leaves-content"
+                                initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                                animate={{ height: 'auto', opacity: 1, marginTop: '1rem' }}
+                                exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                className="overflow-hidden"
+                            >
+                                <div className="space-y-3">
+                                    {leaves.length > 0 ? (
+                                        leaves.map(leave => (
+                                            <div key={leave.id} className="bg-background dark:bg-dark-background/60 p-3 rounded-md border border-border dark:border-dark-border">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <p className="font-semibold text-sm">
+                                                            {new Date(leave.startDate + 'T12:00:00Z').toLocaleDateString('pt-BR')} - {leave.endDate ? new Date(leave.endDate + 'T12:00:00Z').toLocaleDateString('pt-BR') : <span className="text-blue-500">Ativa</span>}
+                                                        </p>
+                                                        {leave.reason && <p className="text-xs text-muted-foreground mt-1">{leave.reason}</p>}
+                                                    </div>
+                                                    <div className="flex-shrink-0 flex items-center">
+                                                        <button onClick={() => setView({ name: 'leave-form', memberId: member.id, leaveId: leave.id, returnView: currentView })} className="p-2 text-muted-foreground hover:text-primary rounded-full" title="Editar Licença"><Edit className="h-4 w-4"/></button>
+                                                        <button onClick={() => setLeaveToDelete(leave)} className="p-2 text-muted-foreground hover:text-danger rounded-full" title="Excluir Licença"><Trash className="h-4 w-4"/></button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p className="text-sm text-center text-muted-foreground py-2">Nenhuma licença registrada.</p>
+                                    )}
+                                </div>
+                                <button 
+                                    onClick={() => setView({ name: 'leave-form', memberId: member.id, returnView: currentView })}
+                                    className="w-full mt-4 text-center bg-primary/10 text-primary font-semibold py-2 px-4 rounded-md text-sm hover:bg-primary/20 transition-colors"
+                                >
+                                    Registrar Nova Licença
+                                </button>
+                             </motion.div>
+                        )}
+                        </AnimatePresence>
+                    </motion.div>
+                </div>
                  <motion.div variants={itemVariants} className="lg:col-span-2">
                     <motion.div 
                       className="bg-card dark:bg-dark-card rounded-xl p-4 sm:p-6 border border-border dark:border-dark-border"
@@ -289,7 +387,16 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                             className="overflow-hidden"
                                             >
                                                 <div className="px-2 pb-2 space-y-1">
-                                                    {paymentMonthsByYear[year].map(({month, monthName, payment}) => {
+                                                    {paymentMonthsByYear[year].map(({month, monthName, payment, onLeave}) => {
+                                                        if (onLeave) {
+                                                            return (
+                                                                <div key={month} className="flex items-center gap-2 p-2 sm:p-3 bg-blue-100/50 dark:bg-blue-900/20 rounded-lg">
+                                                                    <Briefcase className="h-4 w-4 text-blue-500 flex-shrink-0"/>
+                                                                    <span className="font-semibold capitalize text-sm sm:text-base text-blue-700 dark:text-blue-300">{monthName} - Em Licença</span>
+                                                                </div>
+                                                            );
+                                                        }
+
                                                         const isPaid = !!payment;
                                                         const isDue = new Date(month + '-01') < new Date() && !isPaid && member.activityStatus !== 'Desligado';
                                                         const monthBgClass = isPaid ? 'bg-success-strong dark:bg-dark-success-strong' : isDue ? 'bg-danger-strong dark:bg-dark-danger-strong' : 'bg-gray-200/60 dark:bg-gray-800/20';
@@ -379,7 +486,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                                                     <p className="text-sm font-semibold text-danger">Confirmar exclusão do pagamento?</p>
                                                                     <div className="flex justify-center gap-3">
                                                                         <button onClick={() => setExpandedDetail(null)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted">Cancelar</button>
-                                                                        <button onClick={() => handleConfirmDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
+                                                                        <button onClick={() => handleConfirmPaymentDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
                                                                     </div>
                                                                     </div>
                                                                 </motion.div>
@@ -404,6 +511,54 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                     </motion.div>
                  </motion.div>
             </motion.div>
+            <AnimatePresence>
+                {leaveToDelete && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                        onClick={() => setLeaveToDelete(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                            className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="text-center">
+                                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                                    <Trash className="h-6 w-6 text-destructive" aria-hidden="true" />
+                                </div>
+                                <h3 className="mt-4 text-xl font-bold font-display text-foreground dark:text-dark-foreground">Excluir Licença?</h3>
+                                <div className="mt-2">
+                                    <p className="text-sm text-muted-foreground">
+                                        Tem certeza que deseja remover a licença iniciada em <span className="font-semibold">{new Date(leaveToDelete.startDate + 'T12:00:00Z').toLocaleDateString('pt-BR')}</span>?
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-6 flex justify-center gap-4">
+                                <button
+                                    type="button"
+                                    className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted"
+                                    onClick={() => setLeaveToDelete(null)}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                                    onClick={handleConfirmLeaveDelete}
+                                >
+                                    Sim, Excluir
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

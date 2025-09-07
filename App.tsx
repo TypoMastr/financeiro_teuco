@@ -25,6 +25,7 @@ import { BatchTransactionFormPage, OfxImportFormPage } from './components/BatchO
 import { LogPage } from './components/LogPage';
 import { LockScreen } from './components/LockScreen';
 import { Chatbot } from './components/Chatbot';
+import { LeaveFormPage } from './components/LeaveFormPage';
 
 const App: React.FC = () => {
   const [isLocked, setIsLocked] = useState(true);
@@ -99,6 +100,8 @@ const App: React.FC = () => {
           return <BatchTransactionFormPage viewState={view} setView={setView} />;
       case 'ofx-import-form':
           return <OfxImportFormPage viewState={view} setView={setView} />;
+      case 'leave-form':
+          return <LeaveFormPage viewState={view} setView={setView} />;
       case 'chatbot':
           return <Chatbot setView={setView} />;
 
@@ -108,8 +111,8 @@ const App: React.FC = () => {
   };
   
   const getAnimationKey = (v: ViewState) => {
-    if ('id' in v || 'transactionId' in v || 'billId' in v || 'itemId' in v || 'itemType' in v || 'report' in v || 'accountId' in v || 'filterId' in v || 'paymentId' in v) {
-        return v.name + (('id' in v) ? v.id : '') + (('transactionId' in v) ? v.transactionId : '') + (('billId' in v) ? v.billId : '') + (('itemId' in v) ? v.itemId : '') + (('itemType' in v) ? v.itemType : '') + (('report' in v) ? v.report?.type : '') + (('accountId' in v) ? v.accountId : '') + (('filterId' in v) ? v.filterId : '') + (('paymentId' in v) ? v.paymentId : '');
+    if ('id' in v || 'transactionId' in v || 'billId' in v || 'itemId' in v || 'itemType' in v || 'report' in v || 'accountId' in v || 'filterId' in v || 'paymentId' in v || 'leaveId' in v) {
+        return v.name + (('id' in v) ? v.id : '') + (('transactionId' in v) ? v.transactionId : '') + (('billId' in v) ? v.billId : '') + (('itemId' in v) ? v.itemId : '') + (('itemType' in v) ? v.itemType : '') + (('report' in v) ? v.report?.type : '') + (('accountId' in v) ? v.accountId : '') + (('filterId' in v) ? v.filterId : '') + (('paymentId' in v) ? v.paymentId : '') + (('leaveId' in v) ? v.leaveId : '');
     }
     return v.name;
   }
