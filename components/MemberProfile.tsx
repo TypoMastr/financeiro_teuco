@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 // FIX: Import types from the corrected types.ts file.
-import { Member, Payment, Transaction, ViewState, Account } from '../types';
+import { Member, Payment, Transaction, ViewState, Account, ActivityStatus } from '../types';
 // FIX: Import missing functions from api.ts.
 import { getMemberById, getPaymentsByMember, deletePayment, addIncomeTransactionAndPayment, accountsApi, getPaymentDetails, updatePaymentAndTransaction } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
@@ -123,7 +123,9 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
         const groups: Record<string, { month: string, monthName: string, payment: Payment | null }[]> = {};
         let currentDate = new Date(member.joinDate);
         currentDate.setDate(1);
-        const endDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1));
+        
+        const defaultEndDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1));
+        const endDate = member.activityStatus === 'Desligado' ? new Date() : defaultEndDate;
 
         while (currentDate <= endDate) {
             const year = currentDate.getFullYear().toString();
@@ -148,6 +150,12 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
         name: 'member-profile',
         id: memberId,
         componentState: { openYear, isInfoExpanded }
+    };
+
+    const activityStatusStyles: { [key in ActivityStatus]: string } = {
+        Ativo: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
+        Inativo: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+        Desligado: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
     };
     
     return (
@@ -182,9 +190,10 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                              <motion.div variants={itemVariants}>
                                 <h2 className="text-2xl sm:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">{member.name}</h2>
                                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-2 mt-2 text-sm text-muted-foreground">
-                                   <div className={`py-1 px-3 rounded-full font-semibold text-xs ${member.activityStatus === 'Ativo' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>{member.activityStatus}</div>
+                                   <div className={`py-1 px-3 rounded-full font-semibold text-xs ${activityStatusStyles[member.activityStatus]}`}>{member.activityStatus}</div>
                                    <span className="py-1 px-3 rounded-full font-semibold text-xs bg-muted dark:bg-dark-muted text-muted-foreground dark:text-dark-muted-foreground flex items-center gap-1.5"><Calendar className="h-3 w-3"/>Desde {new Date(member.joinDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric'})}</span>
                                 </div>
+                                {/* Departure date display removed due to schema mismatch error */}
                             </motion.div>
                              <motion.div variants={itemVariants} className="mt-4 sm:mt-0">
                                 <motion.button onClick={() => setView({ name: 'edit-member', id: member.id })} className="bg-secondary dark:bg-dark-secondary text-sm text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-4 rounded-full hover:bg-muted dark:hover:bg-dark-muted transition-colors flex items-center gap-2" whileTap={{scale: 0.95}}><Edit className="h-4 w-4"/>Editar</motion.button>
@@ -254,132 +263,144 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                       variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
                     >
                         <motion.h3 variants={itemVariants} className="text-xl font-bold font-display text-foreground dark:text-dark-foreground mb-4">Histórico de Pagamentos</motion.h3>
-                         <motion.div variants={itemVariants} className="space-y-2">
-                            {Object.keys(paymentMonthsByYear).sort((a,b) => parseInt(b) - parseInt(a)).map(year => (
-                                <motion.div layout variants={itemVariants} key={year} className="bg-background dark:bg-dark-background/60 rounded-lg border border-border dark:border-dark-border overflow-hidden">
-                                    <button onClick={() => setOpenYear(openYear === year ? '' : year)} className="w-full flex justify-between items-center p-4 font-bold text-lg text-left hover:bg-muted/50 dark:hover:bg-dark-muted/50 transition-colors">
-                                        <span>Ano de {year}</span>
-                                        <motion.span animate={{ rotate: openYear === year ? 0 : -90 }} className={`transition-transform`}>
-                                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                                        </motion.span>
-                                    </button>
-                                    <AnimatePresence initial={false}>
-                                    {openYear === year && (
-                                        <motion.div
-                                          key="content"
-                                          initial={{ height: 0, opacity: 0 }} 
-                                          animate={{ height: 'auto', opacity: 1 }}
-                                          exit={{ height: 0, opacity: 0 }}
-                                          transition={{ duration: 0.3, ease: 'easeInOut' }}
-                                          className="overflow-hidden"
-                                        >
-                                            <div className="px-2 pb-2 space-y-1">
-                                                {paymentMonthsByYear[year].map(({month, monthName, payment}) => {
-                                                    const isPaid = !!payment;
-                                                    const isDue = new Date(month + '-01') < new Date() && !isPaid;
-                                                    const monthBgClass = isPaid ? 'bg-success-strong dark:bg-dark-success-strong' : isDue ? 'bg-danger-strong dark:bg-dark-danger-strong' : 'bg-gray-200/60 dark:bg-gray-800/20';
-                                                    
-                                                    const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
-                                                    
-                                                    return (
-                                                    <motion.div 
-                                                      key={month} 
-                                                      className={`rounded-lg transition-all duration-300 ${monthBgClass}`}
-                                                      layout
-                                                    >
-                                                        <div className="flex justify-between items-center p-2 sm:p-3">
-                                                            <div>
-                                                                <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
-                                                                {payment && (
-                                                                    <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
-                                                                        <span className="font-bold">{formatCurrency(payment.amount)}</span>
-                                                                        <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR')}</span>
+                        {member.isExempt ? (
+                             <motion.div variants={itemVariants} className="text-center py-10 bg-background dark:bg-dark-background/60 rounded-lg border border-border dark:border-dark-border">
+                                <p className="font-semibold text-lg text-cyan-600 dark:text-cyan-400">Membro Isento</p>
+                                <p className="text-muted-foreground mt-1">Este membro não gera cobranças de mensalidade.</p>
+                            </motion.div>
+                        ) : (
+                            <motion.div variants={itemVariants} className="space-y-2">
+                                {Object.keys(paymentMonthsByYear).sort((a,b) => parseInt(b) - parseInt(a)).map(year => (
+                                    <motion.div layout variants={itemVariants} key={year} className="bg-background dark:bg-dark-background/60 rounded-lg border border-border dark:border-dark-border overflow-hidden">
+                                        <button onClick={() => setOpenYear(openYear === year ? '' : year)} className="w-full flex justify-between items-center p-4 font-bold text-lg text-left hover:bg-muted/50 dark:hover:bg-dark-muted/50 transition-colors">
+                                            <span>Ano de {year}</span>
+                                            <motion.span animate={{ rotate: openYear === year ? 0 : -90 }} className={`transition-transform`}>
+                                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                            </motion.span>
+                                        </button>
+                                        <AnimatePresence initial={false}>
+                                        {openYear === year && (
+                                            <motion.div
+                                            key="content"
+                                            initial={{ height: 0, opacity: 0 }} 
+                                            animate={{ height: 'auto', opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                            className="overflow-hidden"
+                                            >
+                                                <div className="px-2 pb-2 space-y-1">
+                                                    {paymentMonthsByYear[year].map(({month, monthName, payment}) => {
+                                                        const isPaid = !!payment;
+                                                        const isDue = new Date(month + '-01') < new Date() && !isPaid && member.activityStatus !== 'Desligado';
+                                                        const monthBgClass = isPaid ? 'bg-success-strong dark:bg-dark-success-strong' : isDue ? 'bg-danger-strong dark:bg-dark-danger-strong' : 'bg-gray-200/60 dark:bg-gray-800/20';
+                                                        
+                                                        const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
+                                                        
+                                                        return (
+                                                        <motion.div 
+                                                        key={month} 
+                                                        className={`rounded-lg transition-all duration-300 ${monthBgClass}`}
+                                                        layout
+                                                        >
+                                                            <div className="flex justify-between items-center p-2 sm:p-3">
+                                                                <div>
+                                                                    <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
+                                                                    {payment && (
+                                                                        <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
+                                                                            <span className="font-bold">{formatCurrency(payment.amount)}</span>
+                                                                            <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR')}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                {payment ? (
+                                                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                                                        <motion.button
+                                                                            onClick={() => setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}
+                                                                            aria-label="Editar pagamento"
+                                                                            className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                            whileTap={{ scale: 0.9 }}
+                                                                        >
+                                                                            <Edit className="h-5 w-5" />
+                                                                        </motion.button>
+                                                                        {payment.attachmentUrl && (
+                                                                            <motion.button
+                                                                                onClick={() => setView({ name: 'attachment-view', attachmentUrl: payment.attachmentUrl!, returnView: currentView })}
+                                                                                aria-label="Ver anexo"
+                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                                whileTap={{ scale: 0.9 }}
+                                                                            >
+                                                                                <Paperclip className="h-5 w-5" />
+                                                                            </motion.button>
+                                                                        )}
+                                                                        {payment.comments && (
+                                                                            <motion.button
+                                                                                onClick={() => handleToggleDetail(payment.id, 'comment')}
+                                                                                aria-label="Ver observações"
+                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                                whileTap={{ scale: 0.9 }}
+                                                                            >
+                                                                                <MessageSquare className="h-5 w-5" />
+                                                                            </motion.button>
+                                                                        )}
+                                                                        <motion.button
+                                                                            onClick={() => handleToggleDetail(payment.id, 'delete')}
+                                                                            aria-label="Excluir pagamento"
+                                                                            className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                                                                            whileTap={{ scale: 0.9 }}
+                                                                        >
+                                                                            <Trash className="h-5 w-5" />
+                                                                        </motion.button>
                                                                     </div>
+                                                                ) : (
+                                                                    <button onClick={() => setView({ name: 'payment-form', id: memberId, month, returnView: currentView })} className="bg-primary shadow-sm shadow-primary/30 text-primary-foreground font-bold text-xs py-2 px-3 rounded-full hover:bg-primary/90 transition-all">
+                                                                        Registrar
+                                                                    </button>
                                                                 )}
                                                             </div>
-                                                            {payment ? (
-                                                                <div className="flex items-center gap-2 flex-shrink-0">
-                                                                    <motion.button
-                                                                        onClick={() => setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}
-                                                                        aria-label="Editar pagamento"
-                                                                        className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                        whileTap={{ scale: 0.9 }}
-                                                                    >
-                                                                        <Edit className="h-5 w-5" />
-                                                                    </motion.button>
-                                                                    {payment.attachmentUrl && (
-                                                                        <motion.button
-                                                                            onClick={() => setView({ name: 'attachment-view', attachmentUrl: payment.attachmentUrl!, returnView: currentView })}
-                                                                            aria-label="Ver anexo"
-                                                                            className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                            whileTap={{ scale: 0.9 }}
-                                                                        >
-                                                                            <Paperclip className="h-5 w-5" />
-                                                                        </motion.button>
-                                                                    )}
-                                                                    {payment.comments && (
-                                                                         <motion.button
-                                                                            onClick={() => handleToggleDetail(payment.id, 'comment')}
-                                                                            aria-label="Ver observações"
-                                                                            className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                            whileTap={{ scale: 0.9 }}
-                                                                        >
-                                                                            <MessageSquare className="h-5 w-5" />
-                                                                        </motion.button>
-                                                                    )}
-                                                                    <motion.button
-                                                                        onClick={() => handleToggleDetail(payment.id, 'delete')}
-                                                                        aria-label="Excluir pagamento"
-                                                                        className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                                                                        whileTap={{ scale: 0.9 }}
-                                                                    >
-                                                                        <Trash className="h-5 w-5" />
-                                                                    </motion.button>
-                                                                </div>
-                                                            ) : (
-                                                                <button onClick={() => setView({ name: 'payment-form', id: memberId, month, returnView: currentView })} className="bg-primary shadow-sm shadow-primary/30 text-primary-foreground font-bold text-xs py-2 px-3 rounded-full hover:bg-primary/90 transition-all">
-                                                                    Registrar
-                                                                </button>
+                                                            <AnimatePresence>
+                                                            {payment && isExpanded(payment.id, 'comment') && payment.comments && (
+                                                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
+                                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-black/10 dark:border-white/10 mx-3 pb-3">
+                                                                    <div className="pt-3 space-y-3 text-sm">
+                                                                    <div>
+                                                                        <h5 className="font-bold text-gray-700 dark:text-gray-300 mb-1">Observações:</h5>
+                                                                        <p className="text-muted-foreground whitespace-pre-wrap">{payment.comments}</p>
+                                                                    </div>
+                                                                    </div>
+                                                                </motion.div>
+                                                                </motion.div>
                                                             )}
-                                                        </div>
-                                                        <AnimatePresence>
-                                                          {payment && isExpanded(payment.id, 'comment') && payment.comments && (
-                                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
-                                                              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-black/10 dark:border-white/10 mx-3 pb-3">
-                                                                <div className="pt-3 space-y-3 text-sm">
-                                                                  <div>
-                                                                    <h5 className="font-bold text-gray-700 dark:text-gray-300 mb-1">Observações:</h5>
-                                                                    <p className="text-muted-foreground whitespace-pre-wrap">{payment.comments}</p>
-                                                                  </div>
-                                                                </div>
-                                                              </motion.div>
-                                                            </motion.div>
-                                                          )}
-                                                        </AnimatePresence>
-                                                        <AnimatePresence>
-                                                          {payment && isExpanded(payment.id, 'delete') && (
-                                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
-                                                              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-danger/20 mx-3 pb-3">
-                                                                <div className="pt-3 text-center space-y-3">
-                                                                  <p className="text-sm font-semibold text-danger">Confirmar exclusão do pagamento?</p>
-                                                                  <div className="flex justify-center gap-3">
-                                                                    <button onClick={() => setExpandedDetail(null)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted">Cancelar</button>
-                                                                    <button onClick={() => handleConfirmDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
-                                                                  </div>
-                                                                </div>
-                                                              </motion.div>
-                                                            </motion.div>
-                                                          )}
-                                                        </AnimatePresence>
-                                                    </motion.div>
-                                                )})}
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                    </AnimatePresence>
-                                </motion.div>
-                            ))}
-                        </motion.div>
+                                                            </AnimatePresence>
+                                                            <AnimatePresence>
+                                                            {payment && isExpanded(payment.id, 'delete') && (
+                                                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
+                                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-danger/20 mx-3 pb-3">
+                                                                    <div className="pt-3 text-center space-y-3">
+                                                                    <p className="text-sm font-semibold text-danger">Confirmar exclusão do pagamento?</p>
+                                                                    <div className="flex justify-center gap-3">
+                                                                        <button onClick={() => setExpandedDetail(null)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted">Cancelar</button>
+                                                                        <button onClick={() => handleConfirmDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
+                                                                    </div>
+                                                                    </div>
+                                                                </motion.div>
+                                                                </motion.div>
+                                                            )}
+                                                            </AnimatePresence>
+                                                        </motion.div>
+                                                    )})}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                        </AnimatePresence>
+                                    </motion.div>
+                                ))}
+                                {member.activityStatus === 'Desligado' && (
+                                    <motion.div variants={itemVariants} className="mt-4 text-center text-sm text-muted-foreground bg-background dark:bg-dark-background/60 p-3 rounded-lg">
+                                        O histórico de pagamentos é exibido até a data de desligamento.
+                                    </motion.div>
+                                )}
+                            </motion.div>
+                        )}
                     </motion.div>
                  </motion.div>
             </motion.div>
@@ -693,15 +714,10 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (isSubmitting || !paymentDetails || !returnView) return;
-
+        if (isSubmitting || !paymentDetails) return;
         setIsSubmitting(true);
         try {
-            const { warning } = await updatePaymentAndTransaction(
-                paymentDetails.payment.id,
-                paymentDetails.transaction.id,
-                formState
-            );
+            const { warning } = await updatePaymentAndTransaction(paymentId, paymentDetails.transaction.id, formState);
             if (warning) {
                 toast.success("Pagamento atualizado, mas o anexo falhou.");
                 toast.info(warning);
@@ -716,34 +732,34 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
             setIsSubmitting(false);
         }
     };
-    
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             setFormState(prev => ({ ...prev, attachmentUrl: URL.createObjectURL(file), attachmentFilename: file.name }));
         }
     };
-    
+
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
-    if (!paymentDetails || !returnView) {
-        if(returnView) setView(returnView); else setView({name: 'members'});
+    if (!paymentDetails) {
+        toast.error("Detalhes do pagamento não encontrados.");
+        setView(returnView);
         return null;
     }
 
-    const { payment } = paymentDetails;
     const inputClass = "w-full text-base rounded-lg border-border dark:border-dark-border bg-card dark:bg-dark-input shadow-sm focus:border-primary focus:ring-2 focus:ring-ring focus:outline-none px-4 py-2.5 transition";
     const labelClass = "block text-sm font-medium text-muted-foreground mb-1.5";
-    const monthName = new Date(payment.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const monthName = new Date(paymentDetails.payment.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
-             <PageHeader title="Editar Pagamento" onBack={() => setView(returnView)} />
-            
+            <PageHeader title="Editar Pagamento" onBack={() => setView(returnView)} />
             <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
-                 <div className="p-4 bg-primary/10 rounded-lg text-center">
+                <div className="p-4 bg-primary/10 rounded-lg text-center">
                     <p className="text-sm font-medium text-primary">Editando pagamento de {monthName}:</p>
-                    <p className="text-3xl font-bold text-primary">{formatCurrency(payment.amount)}</p>
+                    <p className="text-3xl font-bold text-primary">{formatCurrency(paymentDetails.transaction.amount)}</p>
                 </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <DateField
@@ -754,7 +770,7 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
                           required
                         />
                     </div>
-                     <div>
+                    <div>
                         <label htmlFor="accountId" className={labelClass}>Conta de Destino</label>
                         <select id="accountId" value={formState.accountId} onChange={e => setFormState(s => ({...s, accountId: e.target.value}))} required className={`${inputClass} !py-3`}>
                             {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
@@ -765,10 +781,10 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
                     <label htmlFor="comments" className={labelClass}>Observações (Opcional)</label>
                     <textarea id="comments" value={formState.comments} onChange={e => setFormState(s => ({ ...s, comments: e.target.value }))} rows={2} className={`${inputClass} leading-snug`} placeholder="Alguma nota sobre este pagamento..."></textarea>
                 </div>
-                 <div>
+                <div>
                     <label htmlFor="attachment" className={labelClass}>Anexar Comprovante (Opcional)</label>
                     <input type="file" id="attachment" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
-                     <div className="flex gap-2">
+                    <div className="flex gap-2">
                         <button type="button" onClick={() => fileInputRef.current?.click()} className={`${inputClass} flex-1 text-left ${formState.attachmentFilename ? 'text-primary' : 'text-muted-foreground'} flex items-center gap-2`}>
                             <Paperclip className="h-4 w-4" />
                             {formState.attachmentFilename || 'Escolher arquivo...'}
@@ -777,16 +793,11 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
                             <ClipboardPaste className="h-5 w-5" />
                         </button>
                     </div>
-                 </div>
+                </div>
             </div>
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="flex justify-center"
-            >
+            <div className="flex justify-center">
                 <SubmitButton isSubmitting={isSubmitting} text="Salvar Alterações" />
-            </motion.div>
+            </div>
         </form>
     );
 };

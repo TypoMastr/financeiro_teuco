@@ -78,6 +78,7 @@ const FIELD_LABELS: Record<string, string> = {
     birthday: 'Aniversário',
     monthlyFee: 'Mensalidade',
     activityStatus: 'Status de Atividade',
+    isExempt: 'Isenção',
     description: 'Descrição',
     amount: 'Valor',
     date: 'Data',
@@ -246,6 +247,44 @@ const cleanTransactionDataForSupabase = (transactionData: any) => {
 
 // --- BUSINESS LOGIC ---
 const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => {
+    // Handle exempt status first
+    if (member.isExempt) {
+        return {
+            ...member,
+            paymentStatus: PaymentStatus.Isento,
+            overdueMonthsCount: 0,
+            overdueMonths: [],
+            totalDue: 0,
+        };
+    }
+    
+    // Handle special statuses first
+    if (member.activityStatus === 'Desligado') {
+        const memberPayments = allPayments.filter(p => p.memberId === member.id);
+        const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
+        const overdueMonths: OverdueMonth[] = [];
+        let currentDate = new Date(member.joinDate);
+        currentDate.setDate(1);
+        const departureDate = new Date(); // Use current date for calculation as departureDate column doesn't exist
+
+        // Calculate overdue months only up to the departure date
+        while (currentDate < departureDate) {
+            const monthStr = currentDate.toISOString().slice(0, 7);
+            if (!paidMonths.has(monthStr)) {
+                overdueMonths.push({ month: monthStr, amount: member.monthlyFee });
+            }
+            currentDate.setMonth(currentDate.getMonth() + 1);
+        }
+        return {
+            ...member,
+            paymentStatus: PaymentStatus.Desligado,
+            overdueMonthsCount: overdueMonths.length,
+            overdueMonths,
+            totalDue: overdueMonths.reduce((sum, item) => sum + item.amount, 0),
+        };
+    }
+    
+    // Default logic for active/inactive members
     const memberPayments = allPayments.filter(p => p.memberId === member.id);
     const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
     const overdueMonths: OverdueMonth[] = [];
@@ -266,9 +305,13 @@ const calculateMemberDetails = (member: any, allPayments: Payment[]): Member => 
     const currentMonthStr = today.toISOString().slice(0, 7);
 
     let paymentStatus: PaymentStatus;
-    if (overdueMonths.length > 0) paymentStatus = PaymentStatus.Atrasado;
-    else if (lastPaidMonth > currentMonthStr) paymentStatus = PaymentStatus.Adiantado;
-    else paymentStatus = PaymentStatus.EmDia;
+    if (overdueMonths.length > 0) {
+        paymentStatus = PaymentStatus.Atrasado;
+    } else if (lastPaidMonth > currentMonthStr) {
+        paymentStatus = PaymentStatus.Adiantado;
+    } else {
+        paymentStatus = PaymentStatus.EmDia;
+    }
     
     return {
         ...member,
@@ -395,7 +438,8 @@ export const updateMember = async (memberId: string, memberData: Partial<Omit<Me
     const { data, error } = await supabase.from('members').update(convertObjectKeys(memberData, toSnakeCase)).eq('id', memberId).select().single();
     if (error) throw error;
     
-    const description = generateDetailedUpdateMessage(oldData, data, 'Membro', data.name);
+    const lookupData = await getLookupData();
+    const description = generateDetailedUpdateMessage(oldData, data, 'Membro', data.name, lookupData);
     await addLogEntry(description, 'update', 'member', oldData);
     
     const rawPayments = await getPaymentsByMember(memberId);

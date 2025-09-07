@@ -67,7 +67,8 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
     const isEditMode = !!memberId;
     const [member, setMember] = useState<Partial<Member>>({
         name: '', email: '', phone: '', monthlyFee: 50,
-        activityStatus: 'Ativo', joinDate: new Date().toISOString().slice(0, 10), birthday: ''
+        activityStatus: 'Ativo', joinDate: new Date().toISOString().slice(0, 10), birthday: '',
+        isExempt: false,
     });
     const [monthlyFeeStr, setMonthlyFeeStr] = useState('R$ 50,00');
     const [loading, setLoading] = useState(isEditMode);
@@ -115,6 +116,20 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
         
         setMember(prev => ({ ...prev, [name]: formattedValue }));
     }, []);
+
+    const handleSetDeparture = () => {
+        setMember(prev => ({
+            ...prev,
+            activityStatus: 'Desligado',
+        }));
+    };
+    
+    const handleReactivate = () => {
+        setMember(prev => ({
+            ...prev,
+            activityStatus: 'Ativo',
+        }));
+    };
     
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -127,13 +142,14 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
             const dataToSave = {
                 name: member.name || '',
                 email: member.email || '',
-                phone: (member.phone || '').replace(/\D/g, ''), // Save only digits for phone
+                phone: (member.phone || '').replace(/\D/g, ''),
                 monthlyFee: member.monthlyFee || 0,
                 joinDate: joinDateISO,
                 activityStatus: member.activityStatus || 'Ativo',
                 birthday: member.birthday || undefined,
+                isExempt: member.isExempt || false,
             };
-
+            
             if (isEditMode && memberId) {
                 const updatedMember = await updateMember(memberId, dataToSave);
                 toast.success('Membro atualizado com sucesso!');
@@ -145,7 +161,8 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
             }
         } catch (error) {
             console.error("Erro ao salvar membro", error);
-            toast.error("Ocorreu um erro. Tente novamente.");
+            const message = (error as any)?.message || 'Erro desconhecido. Verifique o console.';
+            toast.error(`Falha ao salvar: ${message}`);
             setIsSubmitting(false);
         }
     };
@@ -203,7 +220,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                     className="bg-card dark:bg-dark-card p-6 sm:p-8 rounded-xl border border-border dark:border-dark-border shadow-form-card dark:shadow-dark-form-card overflow-hidden"
                 >
                      <div className="border-t-4 border-primary -mt-6 sm:-mt-8 -mx-6 sm:-mx-8 mb-6 sm:mb-8"></div>
-                    <motion.h3 variants={itemVariants} className="text-xl md:text-2xl font-bold mb-6">Detalhes da Mensalidade</motion.h3>
+                    <motion.h3 variants={itemVariants} className="text-xl md:text-2xl font-bold mb-6">Detalhes da Filiação</motion.h3>
                     <motion.div className="space-y-6" variants={containerVariants}>
 
                         <motion.div variants={itemVariants}>
@@ -237,14 +254,58 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                             </div>
                         </motion.div>
 
+                        <motion.div variants={itemVariants}>
+                            <div className="flex items-center gap-3 bg-background dark:bg-dark-input p-3 border border-border dark:border-dark-border rounded-lg">
+                                <input
+                                    type="checkbox"
+                                    id="isExempt"
+                                    name="isExempt"
+                                    checked={member.isExempt || false}
+                                    onChange={e => setMember(prev => ({ ...prev, isExempt: e.target.checked }))}
+                                    className="h-5 w-5 rounded border-border dark:border-dark-border text-primary focus:ring-primary"
+                                />
+                                <label htmlFor="isExempt" className="text-base font-semibold text-foreground dark:text-dark-foreground cursor-pointer">
+                                    Isento de Mensalidade
+                                </label>
+                            </div>
+                        </motion.div>
                         
                          <motion.div variants={itemVariants}>
                              <label htmlFor="activityStatus" className="block text-base font-semibold text-foreground dark:text-dark-foreground">Status do Membro</label>
-                            <select id="activityStatus" name="activityStatus" value={member.activityStatus} onChange={handleInputChange} className="block w-full mt-2 px-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm">
+                            <select id="activityStatus" name="activityStatus" value={member.activityStatus} onChange={handleInputChange} disabled={member.activityStatus === 'Desligado'} className="block w-full mt-2 px-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm disabled:bg-muted/50 dark:disabled:bg-dark-muted/50 disabled:cursor-not-allowed">
                                 <option value="Ativo">Ativo</option>
                                 <option value="Inativo">Inativo</option>
+                                {member.activityStatus === 'Desligado' && <option value="Desligado">Desligado</option>}
                             </select>
                         </motion.div>
+                        
+                        {isEditMode && (
+                            <motion.div variants={itemVariants} className="pt-6 border-t border-border/70 dark:border-dark-border/70 mt-6">
+                                {member.activityStatus === 'Desligado' ? (
+                                    <div className="space-y-4 text-center">
+                                        <h4 className="text-lg font-bold text-warning">Status: Membro Desligado</h4>
+                                        <button
+                                            type="button"
+                                            onClick={handleReactivate}
+                                            className="text-primary font-semibold hover:underline"
+                                        >
+                                            Reativar Membro
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="text-center">
+                                         <button
+                                            type="button"
+                                            onClick={handleSetDeparture}
+                                            className="bg-destructive/10 text-destructive font-semibold py-2 px-4 rounded-md hover:bg-destructive/20 transition-colors"
+                                        >
+                                            Registrar Desligamento do Membro
+                                        </button>
+                                    </div>
+                                )}
+                            </motion.div>
+                        )}
+
                     </motion.div>
                 </motion.div>
 

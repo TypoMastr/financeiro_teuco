@@ -4,9 +4,11 @@ export enum PaymentStatus {
   EmDia = 'Em Dia',
   Atrasado = 'Atrasado',
   Adiantado = 'Adiantado',
+  Desligado = 'Desligado',
+  Isento = 'Isento',
 }
 
-export type ActivityStatus = 'Ativo' | 'Inativo';
+export type ActivityStatus = 'Ativo' | 'Inativo' | 'Desligado';
 export type SortOption = 'name_asc' | 'name_desc';
 export type ItemType = 'account' | 'category' | 'payee' | 'tag' | 'project';
 
@@ -24,6 +26,7 @@ export interface Member {
   birthday?: string;
   monthlyFee: number;
   activityStatus: ActivityStatus;
+  isExempt: boolean;
   paymentStatus: PaymentStatus;
   overdueMonthsCount: number;
   overdueMonths: OverdueMonth[];

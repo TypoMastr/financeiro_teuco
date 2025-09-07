@@ -10,6 +10,8 @@ const statusStyles: { [key in PaymentStatus]: { bg: string, text: string, ring: 
   [PaymentStatus.EmDia]: { bg: 'bg-green-100 dark:bg-green-500/10', text: 'text-green-700 dark:text-green-300', ring: 'ring-green-500/20', name: 'Em Dia' },
   [PaymentStatus.Atrasado]: { bg: 'bg-red-100 dark:bg-red-500/10', text: 'text-red-700 dark:text-red-300', ring: 'ring-red-500/20', name: 'Atrasado' },
   [PaymentStatus.Adiantado]: { bg: 'bg-blue-100 dark:bg-blue-500/10', text: 'text-blue-700 dark:text-blue-300', ring: 'ring-blue-500/20', name: 'Adiantado' },
+  [PaymentStatus.Desligado]: { bg: 'bg-gray-200 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-400', ring: 'ring-gray-500/20', name: 'Desligado' },
+  [PaymentStatus.Isento]: { bg: 'bg-cyan-100 dark:bg-cyan-500/10', text: 'text-cyan-700 dark:text-cyan-300', ring: 'ring-cyan-500/20', name: 'Isento' },
 };
 
 const formatPhone = (phone: string) => {
@@ -60,12 +62,15 @@ const MemberRow: React.FC<{ member: Member; onSelect: (id: string) => void; expa
     return (
         <motion.div
             variants={memberRowVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            layout
             onClick={() => onSelect(member.id)}
             className="rounded-xl border border-border dark:border-dark-border mb-3 cursor-pointer group overflow-hidden bg-card dark:bg-dark-card"
             whileHover={{ scale: 1.01, y: -2 }}
             whileTap={{ scale: 0.99 }}
             transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-            layout
         >
             <div className="p-3 sm:p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -199,14 +204,34 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
 
   const filteredAndSortedMembers = useMemo(() => {
     return members
-      .filter(m => filters.activity === 'all' || m.activityStatus === filters.activity)
-      .filter(m => filters.status === 'all' || m.paymentStatus === filters.status)
-      .filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter(member => {
+        // Filter by search term
+        const searchMatch = member.name.toLowerCase().includes(searchTerm.toLowerCase());
+        if (!searchMatch) return false;
+
+        // Filter by activity status
+        const activityMatch = filters.activity === 'all' || member.activityStatus === filters.activity;
+        if (!activityMatch) return false;
+
+        // Filter by payment status (only if a specific status is selected)
+        if (filters.status !== 'all') {
+          return member.paymentStatus === filters.status;
+        }
+
+        // If payment status is 'all', include all that matched activity
+        return true;
+      })
       .sort((a, b) => {
-          if (filters.sort === 'name_asc') return a.name.localeCompare(b.name);
-          return b.name.localeCompare(a.name);
+        if (filters.sort === 'name_asc') return a.name.localeCompare(b.name);
+        return b.name.localeCompare(a.name);
       });
   }, [members, filters, searchTerm]);
+  
+  const handleActivityFilterChange = (activityValue: string) => {
+    // When changing the main activity filter, reset the payment status filter
+    // to avoid conflicts (e.g., filtering for "Desligado" members with "Atrasado" payment status, which is impossible).
+    setFilters(f => ({ ...f, activity: activityValue, status: 'all' }));
+  };
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -243,9 +268,10 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                     >
                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-semibold text-muted-foreground">Status:</span>
-                            <FilterChip label="Ativos" value="Ativo" selected={filters.activity === 'Ativo'} onClick={() => setFilters(f => ({...f, activity: 'Ativo'}))} />
-                            <FilterChip label="Inativos" value="Inativo" selected={filters.activity === 'Inativo'} onClick={() => setFilters(f => ({...f, activity: 'Inativo'}))} />
-                            <FilterChip label="Todos" value="all" selected={filters.activity === 'all'} onClick={() => setFilters(f => ({...f, activity: 'all'}))} />
+                            <FilterChip label="Ativos" value="Ativo" selected={filters.activity === 'Ativo'} onClick={() => handleActivityFilterChange('Ativo')} />
+                            <FilterChip label="Inativos" value="Inativo" selected={filters.activity === 'Inativo'} onClick={() => handleActivityFilterChange('Inativo')} />
+                            <FilterChip label="Desligados" value="Desligado" selected={filters.activity === 'Desligado'} onClick={() => handleActivityFilterChange('Desligado')} />
+                            <FilterChip label="Todos" value="all" selected={filters.activity === 'all'} onClick={() => handleActivityFilterChange('all')} />
                         </div>
                         <div className="h-5 w-px bg-border dark:bg-dark-border"></div>
                          <div className="flex items-center gap-2 flex-wrap">
@@ -273,11 +299,12 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
             >
                  <select
                     value={filters.activity}
-                    onChange={(e) => setFilters(f => ({...f, activity: e.target.value}))}
+                    onChange={(e) => handleActivityFilterChange(e.target.value)}
                     className="w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
                  >
                     <option value="Ativo">Membros Ativos</option>
                     <option value="Inativo">Membros Inativos</option>
+                    <option value="Desligado">Membros Desligados</option>
                     <option value="all">Todos os Membros</option>
                  </select>
                  <select
@@ -298,14 +325,10 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
                 </div>
             ) : (
-                <AnimatePresence>
-                    {filteredAndSortedMembers.length > 0 ? (
-                        <motion.div
-                          variants={containerVariants}
-                          initial="hidden"
-                          animate="visible"
-                        >
-                            {filteredAndSortedMembers.map(member => (
+                <motion.div layout>
+                    <AnimatePresence>
+                        {filteredAndSortedMembers.length > 0 ? (
+                            filteredAndSortedMembers.map(member => (
                                 <MemberRow 
                                     key={member.id}
                                     member={member} 
@@ -314,18 +337,24 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                                     setExpandedMemberId={setExpandedMemberId}
                                     setView={setView}
                                 />
-                            ))}
-                        </motion.div>
-                    ) : (
-                        <motion.div initial={{opacity: 0}} animate={{opacity: 1}} exit={{opacity: 0}} className="text-center py-20 text-muted-foreground">
-                             <div className="inline-block p-4 bg-muted dark:bg-dark-muted rounded-full mb-4">
-                                <Users className="h-10 w-10 text-primary" />
-                            </div>
-                            <p className="font-semibold text-lg">Nenhum membro encontrado.</p>
-                            <p className="text-base">Tente ajustar seus filtros ou busca.</p>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                            ))
+                        ) : (
+                            <motion.div
+                                key="no-members-found"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="text-center py-20 text-muted-foreground"
+                            >
+                                <div className="inline-block p-4 bg-muted dark:bg-dark-muted rounded-full mb-4">
+                                    <Users className="h-10 w-10 text-primary" />
+                                </div>
+                                <p className="font-semibold text-lg">Nenhum membro encontrado.</p>
+                                <p className="text-base">Tente ajustar seus filtros ou busca.</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </motion.div>
             )}
         </motion.div>
     </div>
