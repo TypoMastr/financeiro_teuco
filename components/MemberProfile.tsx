@@ -4,7 +4,7 @@ import { Member, Payment, Transaction, ViewState, Account } from '../types';
 // FIX: Import missing functions from api.ts.
 import { getMemberById, getPaymentsByMember, deletePayment, addIncomeTransactionAndPayment, accountsApi, getPaymentDetails, updatePaymentAndTransaction } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste } from './Icons';
+import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -405,6 +405,21 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const [isHistoricalPayment, setIsHistoricalPayment] = useState(false);
+
+    const shouldShowHistoricalOption = useMemo(() => {
+        if (!formState.paymentDate) return false;
+        // Adiciona a hora para garantir a comparação correta entre fusos horários.
+        const paymentDateObj = new Date(formState.paymentDate + 'T12:00:00Z');
+        const cutoffDate = new Date('2025-09-01T00:00:00Z');
+        return paymentDateObj < cutoffDate;
+    }, [formState.paymentDate]);
+
+    useEffect(() => {
+        // Marca/desmarca automaticamente a caixa com base na data de pagamento.
+        setIsHistoricalPayment(shouldShowHistoricalOption);
+    }, [shouldShowHistoricalOption]);
     
     useEffect(() => {
         const loadData = async () => {
@@ -468,7 +483,7 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
         e.preventDefault();
         if (isSubmitting || !member || !month || !returnView) return;
 
-        if (!formState.accountId) {
+        if (!formState.accountId && !isHistoricalPayment) {
             toast.error("Nenhuma conta de destino selecionada. Por favor, crie uma conta em Ajustes.");
             return;
         }
@@ -488,7 +503,8 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
                 referenceMonth: month,
                 attachmentUrl: formState.attachmentUrl,
                 attachmentFilename: formState.attachmentFilename,
-              }
+              },
+              isHistoricalPayment
             );
 
             if (warning) {
@@ -533,6 +549,25 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
                     <p className="text-sm font-medium text-primary">Valor para {monthName}:</p>
                     <p className="text-3xl font-bold text-primary">{formatCurrency(member.monthlyFee)}</p>
                 </div>
+
+                {shouldShowHistoricalOption && (
+                    <div className="p-3 bg-yellow-100/70 dark:bg-yellow-900/30 rounded-lg flex items-center gap-3 border border-yellow-300/50 dark:border-yellow-500/30">
+                        <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
+                        <div className="flex-1">
+                             <label htmlFor="historicalPayment" className="text-sm text-yellow-900 dark:text-yellow-200 cursor-pointer">
+                                Pagamento histórico <strong className="font-semibold">(não gera transação financeira)</strong>
+                            </label>
+                        </div>
+                        <input
+                            type="checkbox"
+                            id="historicalPayment"
+                            checked={isHistoricalPayment}
+                            onChange={(e) => setIsHistoricalPayment(e.target.checked)}
+                            className="h-5 w-5 rounded border-yellow-400 dark:border-yellow-600 text-primary focus:ring-primary bg-transparent flex-shrink-0"
+                        />
+                    </div>
+                )}
+                
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <DateField
@@ -545,7 +580,7 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
                     </div>
                      <div>
                         <label htmlFor="accountId" className={labelClass}>Conta de Destino</label>
-                        <select id="accountId" value={formState.accountId} onChange={e => setFormState(s => ({...s, accountId: e.target.value}))} required className={`${inputClass} !py-3`}>
+                        <select id="accountId" value={formState.accountId} onChange={e => setFormState(s => ({...s, accountId: e.target.value}))} required={!isHistoricalPayment} disabled={isHistoricalPayment} className={`${inputClass} !py-3 disabled:bg-muted/50 dark:disabled:bg-dark-muted/50 disabled:cursor-not-allowed`}>
                             {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                         </select>
                     </div>

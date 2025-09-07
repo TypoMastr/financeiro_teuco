@@ -532,7 +532,8 @@ export const deletePayment = async (paymentId: string): Promise<void> => {
 
 export const addIncomeTransactionAndPayment = async (
     transactionData: Pick<Transaction, 'description' | 'amount' | 'date' | 'accountId' | 'comments'>,
-    paymentData: Pick<Payment, 'memberId' | 'referenceMonth' | 'attachmentUrl' | 'attachmentFilename'>
+    paymentData: Pick<Payment, 'memberId' | 'referenceMonth' | 'attachmentUrl' | 'attachmentFilename'>,
+    isHistoricalPayment: boolean = false
 ): Promise<{ warning?: string }> => {
     let warning: string | undefined;
     let finalAttachmentUrl = paymentData.attachmentUrl;
@@ -552,45 +553,60 @@ export const addIncomeTransactionAndPayment = async (
         }
     }
 
-    let mensalidadesCategoryId: string;
-    const { data: existingCategories, error: catError } = await supabase.from('categories').select('id').eq('name', 'Mensalidades').eq('type', 'income').limit(1);
-    if (catError) throw new Error('Erro ao buscar a categoria de mensalidades.');
-
-    if (existingCategories && existingCategories.length > 0) {
-        mensalidadesCategoryId = existingCategories[0].id;
+    if (isHistoricalPayment) {
+        const { data: payData, error: payError } = await supabase.from('payments').insert({
+            member_id: paymentData.memberId,
+            amount: transactionData.amount,
+            payment_date: transactionData.date,
+            reference_month: paymentData.referenceMonth,
+            comments: transactionData.comments,
+            transaction_id: null,
+            attachment_url: finalAttachmentUrl,
+            attachment_filename: finalAttachmentFilename
+        }).select().single();
+        if (payError) throw payError;
+        await addLogEntry(`Registrado pagamento histórico para ref. ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
     } else {
-        const { data: newCategory, error: createCatError } = await supabase.from('categories').insert({ name: 'Mensalidades', type: 'income' }).select('id').single();
-        if (createCatError) throw new Error('Não foi possível criar a categoria "Mensalidades".');
-        mensalidadesCategoryId = newCategory.id;
-        await addLogEntry('Criada categoria "Mensalidades" automaticamente', 'create', 'category', { id: newCategory.id });
+        let mensalidadesCategoryId: string;
+        const { data: existingCategories, error: catError } = await supabase.from('categories').select('id').eq('name', 'Mensalidades').eq('type', 'income').limit(1);
+        if (catError) throw new Error('Erro ao buscar a categoria de mensalidades.');
+
+        if (existingCategories && existingCategories.length > 0) {
+            mensalidadesCategoryId = existingCategories[0].id;
+        } else {
+            const { data: newCategory, error: createCatError } = await supabase.from('categories').insert({ name: 'Mensalidades', type: 'income' }).select('id').single();
+            if (createCatError) throw new Error('Não foi possível criar a categoria "Mensalidades".');
+            mensalidadesCategoryId = newCategory.id;
+            await addLogEntry('Criada categoria "Mensalidades" automaticamente', 'create', 'category', { id: newCategory.id });
+        }
+
+        const { data: trxData, error: trxError } = await supabase.from('transactions').insert({
+            description: transactionData.description,
+            amount: transactionData.amount,
+            date: transactionData.date,
+            type: 'income',
+            account_id: transactionData.accountId,
+            category_id: mensalidadesCategoryId,
+            comments: transactionData.comments,
+            attachment_url: finalAttachmentUrl,
+            attachment_filename: finalAttachmentFilename
+        }).select().single();
+        if (trxError) throw trxError;
+        await addLogEntry(`Criada transação: "${trxData.description}"`, 'create', 'transaction', { id: trxData.id });
+
+        const { data: payData, error: payError } = await supabase.from('payments').insert({
+            member_id: paymentData.memberId,
+            amount: transactionData.amount,
+            payment_date: transactionData.date,
+            reference_month: paymentData.referenceMonth,
+            comments: transactionData.comments,
+            transaction_id: trxData.id,
+            attachment_url: finalAttachmentUrl,
+            attachment_filename: finalAttachmentFilename
+        }).select().single();
+        if (payError) throw payError;
+        await addLogEntry(`Criado pagamento para ref. ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
     }
-
-    const { data: trxData, error: trxError } = await supabase.from('transactions').insert({
-        description: transactionData.description,
-        amount: transactionData.amount,
-        date: transactionData.date,
-        type: 'income',
-        account_id: transactionData.accountId,
-        category_id: mensalidadesCategoryId,
-        comments: transactionData.comments,
-        attachment_url: finalAttachmentUrl,
-        attachment_filename: finalAttachmentFilename
-    }).select().single();
-    if (trxError) throw trxError;
-    await addLogEntry(`Criada transação: "${trxData.description}"`, 'create', 'transaction', { id: trxData.id });
-
-    const { data: payData, error: payError } = await supabase.from('payments').insert({
-        member_id: paymentData.memberId,
-        amount: transactionData.amount,
-        payment_date: transactionData.date,
-        reference_month: paymentData.referenceMonth,
-        comments: transactionData.comments,
-        transaction_id: trxData.id,
-        attachment_url: finalAttachmentUrl,
-        attachment_filename: finalAttachmentFilename
-    }).select().single();
-    if (payError) throw payError;
-    await addLogEntry(`Criado pagamento para ref. ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
     
     return { warning };
 };
