@@ -1269,15 +1269,14 @@ export const getDashboardStats = async (): Promise<Stats> => {
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
     const endOfMonthWithTime = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    const currentMonthStr = today.toISOString().slice(0, 7);
 
     const [members, payments, expenses, accountsWithBalance, futureIncome, pendingBills] = await Promise.all([
         getMembers(),
         supabase.from('payments').select('amount').gte('payment_date', startOfMonth).lte('payment_date', endOfMonthWithTime),
         supabase.from('transactions').select('amount').eq('type', 'expense').gte('date', startOfMonth).lte('date', endOfMonthWithTime),
         getAccountsWithBalance(),
-        // Future-dated income transactions for the CURRENT month
-        supabase.from('transactions').select('amount').eq('type', 'income').gt('date', today.toISOString()).gte('date', startOfMonth).lte('date', endOfMonthWithTime),
-        // Unpaid bills due in the CURRENT month
+        supabase.from('transactions').select('amount').eq('type', 'income').gt('date', today.toISOString()),
         supabase.from('payable_bills').select('amount').in('status', ['pending', 'overdue']).gte('due_date', startOfMonth).lte('due_date', endOfMonthWithTime.slice(0, 10))
     ]);
 
@@ -1286,15 +1285,44 @@ export const getDashboardStats = async (): Promise<Stats> => {
     if (futureIncome.error) throw futureIncome.error;
     if (pendingBills.error) throw pendingBills.error;
     
+    const activeMembers = members.filter(m => m.activityStatus === 'Ativo');
+    const contributingMembers = activeMembers.filter(m => !m.isExempt);
+    const exemptMembersCount = activeMembers.filter(m => m.isExempt).length;
+    const overdueMembersCount = contributingMembers.filter(m => m.paymentStatus === PaymentStatus.Atrasado).length;
+
+    const totalOverdueAmount = members.reduce((sum, m) => {
+        const previousMonthsDue = m.overdueMonths
+            .filter(om => om.month < currentMonthStr)
+            .reduce((monthSum, om) => monthSum + om.amount, 0);
+        return sum + previousMonthsDue;
+    }, 0);
+    
+    const currentMonthPendingAmount = contributingMembers
+        .filter(m => m.overdueMonths.some(om => om.month === currentMonthStr))
+        .reduce((sum, m) => sum + m.monthlyFee, 0);
+
+    const nextMonthProjectedRevenue = contributingMembers.reduce((sum, m) => sum + m.monthlyFee, 0);
+    
+    const overduePercentage = contributingMembers.length > 0 ? (overdueMembersCount / contributingMembers.length) * 100 : 0;
+    
+    const originalProjectedIncome = futureIncome.data.reduce((sum, t) => sum + t.amount, 0);
+    const finalProjectedIncome = originalProjectedIncome + currentMonthPendingAmount;
+
     return {
-        totalMembers: members.filter(m => m.activityStatus === 'Ativo').length,
+        totalMembers: activeMembers.length,
         onTime: members.filter(m => m.paymentStatus === PaymentStatus.EmDia || m.paymentStatus === PaymentStatus.Adiantado).length,
-        overdue: members.filter(m => m.paymentStatus === PaymentStatus.Atrasado).length,
+        overdue: overdueMembersCount,
         monthlyRevenue: payments.data.reduce((sum, p) => sum + p.amount, 0),
         monthlyExpenses: expenses.data.reduce((sum, t) => sum + t.amount, 0),
         currentBalance: accountsWithBalance.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0),
-        projectedIncome: futureIncome.data.reduce((sum, t) => sum + t.amount, 0),
+        projectedIncome: finalProjectedIncome,
         projectedExpenses: pendingBills.data.reduce((sum, b) => sum + b.amount, 0),
+        totalOverdueAmount,
+        currentMonthPendingAmount,
+        nextMonthProjectedRevenue,
+        contributingMembers: contributingMembers.length,
+        exemptMembers: exemptMembersCount,
+        overduePercentage,
     };
 };
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { getDashboardStats, getHistoricalMonthlySummary } from '../services/api';
 import { Stats, ViewState } from '../types';
-import { TrendingUp, TrendingDown, Wallet, Scale, ChevronDown } from './Icons';
+import { TrendingUp, TrendingDown, Wallet, Scale, ChevronDown, Users, PieChart, DollarSign } from './Icons';
 
 
 // --- Animation Variants ---
@@ -20,11 +20,12 @@ const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style:
 
 
 // --- Sub-components ---
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; colorClass?: string }> = ({ title, value, icon, colorClass = 'text-muted-foreground dark:text-dark-muted-foreground' }) => (
+const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; colorClass?: string; onClick?: () => void; }> = ({ title, value, icon, colorClass = 'text-muted-foreground dark:text-dark-muted-foreground', onClick }) => (
   <motion.div
     variants={itemVariants}
-    className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border"
-    whileHover={{ y: -4, boxShadow: '0 4px 15px -2px rgba(0,0,0,0.05)' }}
+    onClick={onClick}
+    className={`bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border ${onClick ? 'cursor-pointer' : ''}`}
+    whileHover={onClick ? { y: -4, boxShadow: '0 4px 15px -2px rgba(0,0,0,0.05)' } : {}}
     transition={{ type: 'spring', stiffness: 300, damping: 15 }}
   >
     <div className="flex items-center justify-between">
@@ -65,6 +66,13 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
   
   const monthlyBalance = (stats?.monthlyRevenue || 0) - (stats?.monthlyExpenses || 0);
 
+  const previousMonthName = useMemo(() => {
+    const now = new Date();
+    now.setMonth(now.getMonth() - 1);
+    const name = now.toLocaleDateString('pt-BR', { month: 'long' });
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }, []);
+  
   const groupedAndFilteredHistory = useMemo(() => {
     const data = historicalData
         .filter(item => item.month >= '2025-09')
@@ -114,6 +122,21 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
             <StatCard title="Saldo" value={formatCurrency(monthlyBalance)} icon={<Scale className="w-5 h-5" />} colorClass={monthlyBalance >= 0 ? 'text-foreground dark:text-dark-foreground' : 'text-danger'} />
         </div>
       </motion.div>
+
+      <motion.div variants={itemVariants} className="space-y-4">
+        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Mensalidades</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard title={`Total pendente até ${previousMonthName}`} value={formatCurrency(stats?.totalOverdueAmount || 0)} icon={<DollarSign className="w-5 h-5" />} colorClass="text-danger" onClick={() => setView({ name: 'members'})} />
+            <StatCard title="Recebido no Mês" value={formatCurrency(stats?.monthlyRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" onClick={() => setView({ name: 'financial' })}/>
+            <StatCard title="Pendente no Mês" value={formatCurrency(stats?.currentMonthPendingAmount || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-warning" onClick={() => setView({ name: 'members' })}/>
+            <StatCard title="Previsão Próx. Mês" value={formatCurrency(stats?.nextMonthProjectedRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-blue-500" />
+            <StatCard title="Membros Ativos" value={stats?.totalMembers || 0} icon={<Users className="w-5 h-5" />} />
+            <StatCard title="Colaboradores" value={stats?.contributingMembers || 0} icon={<Users className="w-5 h-5" />} />
+            <StatCard title="Isentos" value={stats?.exemptMembers || 0} icon={<Users className="w-5 h-5" />} />
+            <StatCard title="Inadimplência" value={`${(stats?.overduePercentage || 0).toFixed(1)}%`} icon={<PieChart className="w-5 h-5" />} colorClass="text-warning" />
+        </div>
+      </motion.div>
+
       <motion.div variants={itemVariants} className="space-y-4">
           <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Saldos e Projeções</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -145,6 +145,12 @@ export interface Stats {
   currentBalance: number;
   projectedIncome: number;
   projectedExpenses: number;
+  totalOverdueAmount: number;
+  currentMonthPendingAmount: number;
+  nextMonthProjectedRevenue: number;
+  contributingMembers: number;
+  exemptMembers: number;
+  overduePercentage: number;
 }
 
 
@@ -171,7 +177,7 @@ export type ViewState =
   | { name: 'report-view', report: ReportData }
   | { name: 'payment-form', id: string, month: string, returnView: ViewState }
   | { name: 'edit-payment-form', id: string, paymentId: string, returnView: ViewState }
-  | { name: 'transaction-form', transactionId?: string, returnView: ViewState }
+  | { name: 'transaction-form', transactionId?: string, returnView?: ViewState }
   | { name: 'financial-report-form', returnView: ViewState }
   | { name: 'future-income-view', returnView: ViewState }
   | { name: 'setting-list', itemType: ItemType, returnView?: ViewState }
