@@ -307,15 +307,19 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
         const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
         const overdueMonths: OverdueMonth[] = [];
         let currentDate = new Date(memberWithDefaults.joinDate);
-        currentDate.setDate(1);
+        currentDate.setUTCHours(0, 0, 0, 0);
+        currentDate.setUTCDate(1);
+        
         const departureDate = new Date(); 
+        departureDate.setUTCHours(0, 0, 0, 0);
+
 
         while (currentDate < departureDate) {
             const monthStr = currentDate.toISOString().slice(0, 7);
             if (!paidMonths.has(monthStr) && !isDuringLeave(currentDate, memberLeaves)) {
                 overdueMonths.push({ month: monthStr, amount: memberWithDefaults.monthlyFee });
             }
-            currentDate.setMonth(currentDate.getMonth() + 1);
+            currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
         }
         
         let paymentStatus = PaymentStatus.Desligado;
@@ -335,16 +339,17 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
     const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
     const overdueMonths: OverdueMonth[] = [];
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
     let currentDate = new Date(memberWithDefaults.joinDate);
-    currentDate.setDate(1);
+    currentDate.setUTCHours(0, 0, 0, 0);
+    currentDate.setUTCDate(1);
 
     while (currentDate < today) {
         const monthStr = currentDate.toISOString().slice(0, 7);
         if (!paidMonths.has(monthStr) && !isDuringLeave(currentDate, memberLeaves)) {
             overdueMonths.push({ month: monthStr, amount: memberWithDefaults.monthlyFee });
         }
-        currentDate.setMonth(currentDate.getMonth() + 1);
+        currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
     }
 
     const lastPaidMonth = memberPayments.length > 0 ? memberPayments.map(p => p.referenceMonth).sort().pop()! : '0';
@@ -527,7 +532,7 @@ export const getPaymentByTransactionId = async (transactionId: string): Promise<
     return data ? convertObjectKeys(data, toCamelCase) : undefined;
 };
 
-export const getPaymentDetails = async (paymentId: string): Promise<{ payment: Payment, transaction: Transaction } | null> => {
+export const getPaymentDetails = async (paymentId: string): Promise<{ payment: Payment, transaction: Transaction | null } | null> => {
     const { data: paymentData, error: paymentError } = await supabase
         .from('payments')
         .select('*')
@@ -540,8 +545,11 @@ export const getPaymentDetails = async (paymentId: string): Promise<{ payment: P
     }
 
     if (!paymentData.transaction_id) {
-        console.error('Payment has no associated transaction:', paymentData);
-        return null;
+        // This is a historical payment, return it without a transaction
+        return {
+            payment: convertObjectKeys(paymentData, toCamelCase),
+            transaction: null,
+        };
     }
 
     const { data: transactionData, error: transactionError } = await supabase
@@ -550,9 +558,13 @@ export const getPaymentDetails = async (paymentId: string): Promise<{ payment: P
         .eq('id', paymentData.transaction_id)
         .single();
 
+    // If transaction is not found for some reason, we can still allow editing the payment part.
     if (transactionError || !transactionData) {
-        console.error('Error fetching transaction for payment:', transactionError);
-        return null;
+        console.warn('Could not find transaction for payment:', transactionError);
+        return {
+            payment: convertObjectKeys(paymentData, toCamelCase),
+            transaction: null,
+        };
     }
 
     return {
@@ -563,7 +575,7 @@ export const getPaymentDetails = async (paymentId: string): Promise<{ payment: P
 
 export const updatePaymentAndTransaction = async (
     paymentId: string,
-    transactionId: string,
+    transactionId: string | null | undefined,
     formData: {
         paymentDate: string;
         comments: string;
@@ -575,7 +587,8 @@ export const updatePaymentAndTransaction = async (
     let warning: string | undefined;
     let finalAttachmentUrl = formData.attachmentUrl;
     let finalAttachmentFilename = formData.attachmentFilename;
-    const { data: oldPaymentData } = await supabase.from('payments').select('*').eq('id', paymentId).single();
+    const { data: oldPaymentData, error: findPayErr } = await supabase.from('payments').select('*').eq('id', paymentId).single();
+    if(findPayErr) throw findPayErr;
 
     if (formData.attachmentUrl && formData.attachmentUrl.startsWith('blob:') && formData.attachmentFilename) {
         const { url, error } = await uploadAttachment(formData.attachmentUrl, formData.attachmentFilename);
@@ -592,31 +605,36 @@ export const updatePaymentAndTransaction = async (
         }
     }
     
-    const { data: oldTransactionData, error: findTransactionError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
-    if (findTransactionError) throw findTransactionError;
-
-    const lookupData = await getLookupData();
-
-    const { data: updatedTransaction, error: updateTrxErr } = await supabase.from('transactions').update({
-        date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
-        account_id: formData.accountId,
-        comments: formData.comments,
-        attachment_url: finalAttachmentUrl,
-        attachment_filename: finalAttachmentFilename,
-    }).eq('id', transactionId).select().single();
-    if (updateTrxErr) throw updateTrxErr;
-    
-    const trxDescription = generateDetailedUpdateMessage(oldTransactionData, updatedTransaction, 'Transação de Pagamento', updatedTransaction.description, lookupData);
-    await addLogEntry(trxDescription, 'update', 'transaction', oldTransactionData);
-
-    const { data: updatedPayment, error: updatePayErr } = await supabase.from('payments').update({
+    const paymentUpdatePayload = {
         payment_date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
         comments: formData.comments,
         attachment_url: finalAttachmentUrl,
         attachment_filename: finalAttachmentFilename,
-    }).eq('id', paymentId).select().single();
+    };
+
+    const { data: updatedPayment, error: updatePayErr } = await supabase.from('payments').update(paymentUpdatePayload).eq('id', paymentId).select().single();
     if (updatePayErr) throw updatePayErr;
 
+    const lookupData = await getLookupData();
+
+    if (transactionId) {
+        const { data: oldTransactionData, error: findTransactionError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
+        if (findTransactionError) throw findTransactionError;
+
+        const transactionUpdatePayload = {
+            date: new Date(formData.paymentDate + 'T12:00:00Z').toISOString(),
+            account_id: formData.accountId,
+            comments: formData.comments,
+            attachment_url: finalAttachmentUrl,
+            attachment_filename: finalAttachmentFilename,
+        };
+        const { data: updatedTransaction, error: updateTrxErr } = await supabase.from('transactions').update(transactionUpdatePayload).eq('id', transactionId).select().single();
+        if (updateTrxErr) throw updateTrxErr;
+        
+        const trxDescription = generateDetailedUpdateMessage(oldTransactionData, updatedTransaction, 'Transação de Pagamento', updatedTransaction.description, lookupData);
+        await addLogEntry(trxDescription, 'update', 'transaction', oldTransactionData);
+    }
+    
     const payDescription = generateDetailedUpdateMessage(oldPaymentData, updatedPayment, 'Pagamento', `ref. ${oldPaymentData.reference_month}`, lookupData);
     await addLogEntry(payDescription, 'update', 'payment', oldPaymentData);
     

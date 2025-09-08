@@ -4,7 +4,7 @@ import { Member, Payment, Transaction, ViewState, Account, ActivityStatus, Leave
 // FIX: Import missing functions from api.ts.
 import { getMemberById, getPaymentsByMember, deletePayment, addIncomeTransactionAndPayment, accountsApi, getPaymentDetails, updatePaymentAndTransaction, leavesApi } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle, Briefcase } from './Icons';
+import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle, Briefcase, Info } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -390,7 +390,11 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                             >
                                                 <div className="px-2 pb-2 space-y-1">
                                                     {paymentMonthsByYear[year].map(({month, monthName, payment, onLeave}) => {
-                                                        if (onLeave) {
+                                                        const isPaid = !!payment;
+                                                        const isDue = new Date(month + '-01') < new Date() && !isPaid && member.activityStatus !== 'Desligado';
+                                                        const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
+
+                                                        if (!isPaid && onLeave) {
                                                             return (
                                                                 <div key={month} className="flex items-center gap-2 p-2 sm:p-3 bg-blue-100/50 dark:bg-blue-900/20 rounded-lg">
                                                                     <Briefcase className="h-4 w-4 text-blue-500 flex-shrink-0"/>
@@ -398,105 +402,102 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                                                 </div>
                                                             );
                                                         }
-
-                                                        const isPaid = !!payment;
-                                                        const isDue = new Date(month + '-01') < new Date() && !isPaid && member.activityStatus !== 'Desligado';
+                                                        
                                                         const monthBgClass = isPaid ? 'bg-success-strong dark:bg-dark-success-strong' : isDue ? 'bg-danger-strong dark:bg-dark-danger-strong' : 'bg-gray-200/60 dark:bg-gray-800/20';
-                                                        
-                                                        const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
-                                                        
+
                                                         return (
-                                                        <motion.div 
-                                                        key={month} 
-                                                        className={`rounded-lg transition-all duration-300 ${monthBgClass}`}
-                                                        layout
-                                                        >
-                                                            <div className="flex justify-between items-center p-2 sm:p-3">
-                                                                <div>
-                                                                    <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
-                                                                    {payment && (
-                                                                        <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
-                                                                            <span className="font-bold">{formatCurrency(payment.amount)}</span>
-                                                                            <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR')}</span>
+                                                            <motion.div 
+                                                            key={month} 
+                                                            className={`rounded-lg transition-all duration-300 ${monthBgClass}`}
+                                                            layout
+                                                            >
+                                                                <div className="flex justify-between items-center p-2 sm:p-3">
+                                                                    <div>
+                                                                        <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
+                                                                        {payment && (
+                                                                            <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
+                                                                                <span className="font-bold">{formatCurrency(payment.amount)}</span>
+                                                                                <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR')}</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    {payment ? (
+                                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                                            <motion.button
+                                                                                onClick={() => setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}
+                                                                                aria-label="Editar pagamento"
+                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                                whileTap={{ scale: 0.9 }}
+                                                                            >
+                                                                                <Edit className="h-5 w-5" />
+                                                                            </motion.button>
+                                                                            {payment.attachmentUrl && (
+                                                                                <motion.button
+                                                                                    onClick={() => setView({ name: 'attachment-view', attachmentUrl: payment.attachmentUrl!, returnView: currentView })}
+                                                                                    aria-label="Ver anexo"
+                                                                                    className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                                    whileTap={{ scale: 0.9 }}
+                                                                                >
+                                                                                    <Paperclip className="h-5 w-5" />
+                                                                                </motion.button>
+                                                                            )}
+                                                                            {payment.comments && (
+                                                                                <motion.button
+                                                                                    onClick={() => handleToggleDetail(payment.id, 'comment')}
+                                                                                    aria-label="Ver observações"
+                                                                                    className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                                    whileTap={{ scale: 0.9 }}
+                                                                                >
+                                                                                    <MessageSquare className="h-5 w-5" />
+                                                                                </motion.button>
+                                                                            )}
+                                                                            <motion.button
+                                                                                onClick={() => handleToggleDetail(payment.id, 'delete')}
+                                                                                aria-label="Excluir pagamento"
+                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
+                                                                                whileTap={{ scale: 0.9 }}
+                                                                            >
+                                                                                <Trash className="h-5 w-5" />
+                                                                            </motion.button>
                                                                         </div>
+                                                                    ) : (
+                                                                        <button onClick={() => setView({ name: 'payment-form', id: memberId, month, returnView: currentView })} className="bg-primary shadow-sm shadow-primary/30 text-primary-foreground font-bold text-xs py-2 px-3 rounded-full hover:bg-primary/90 transition-all">
+                                                                            Registrar
+                                                                        </button>
                                                                     )}
                                                                 </div>
-                                                                {payment ? (
-                                                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                                                        <motion.button
-                                                                            onClick={() => setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}
-                                                                            aria-label="Editar pagamento"
-                                                                            className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                            whileTap={{ scale: 0.9 }}
-                                                                        >
-                                                                            <Edit className="h-5 w-5" />
-                                                                        </motion.button>
-                                                                        {payment.attachmentUrl && (
-                                                                            <motion.button
-                                                                                onClick={() => setView({ name: 'attachment-view', attachmentUrl: payment.attachmentUrl!, returnView: currentView })}
-                                                                                aria-label="Ver anexo"
-                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                                whileTap={{ scale: 0.9 }}
-                                                                            >
-                                                                                <Paperclip className="h-5 w-5" />
-                                                                            </motion.button>
-                                                                        )}
-                                                                        {payment.comments && (
-                                                                            <motion.button
-                                                                                onClick={() => handleToggleDetail(payment.id, 'comment')}
-                                                                                aria-label="Ver observações"
-                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                                whileTap={{ scale: 0.9 }}
-                                                                            >
-                                                                                <MessageSquare className="h-5 w-5" />
-                                                                            </motion.button>
-                                                                        )}
-                                                                        <motion.button
-                                                                            onClick={() => handleToggleDetail(payment.id, 'delete')}
-                                                                            aria-label="Excluir pagamento"
-                                                                            className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                                                                            whileTap={{ scale: 0.9 }}
-                                                                        >
-                                                                            <Trash className="h-5 w-5" />
-                                                                        </motion.button>
-                                                                    </div>
-                                                                ) : (
-                                                                    <button onClick={() => setView({ name: 'payment-form', id: memberId, month, returnView: currentView })} className="bg-primary shadow-sm shadow-primary/30 text-primary-foreground font-bold text-xs py-2 px-3 rounded-full hover:bg-primary/90 transition-all">
-                                                                        Registrar
-                                                                    </button>
+                                                                <AnimatePresence>
+                                                                {payment && isExpanded(payment.id, 'comment') && payment.comments && (
+                                                                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
+                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-black/10 dark:border-white/10 mx-3 pb-3">
+                                                                        <div className="pt-3 space-y-3 text-sm">
+                                                                        <div>
+                                                                            <h5 className="font-bold text-gray-700 dark:text-gray-300 mb-1">Observações:</h5>
+                                                                            <p className="text-muted-foreground whitespace-pre-wrap">{payment.comments}</p>
+                                                                        </div>
+                                                                        </div>
+                                                                    </motion.div>
+                                                                    </motion.div>
                                                                 )}
-                                                            </div>
-                                                            <AnimatePresence>
-                                                            {payment && isExpanded(payment.id, 'comment') && payment.comments && (
-                                                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
-                                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-black/10 dark:border-white/10 mx-3 pb-3">
-                                                                    <div className="pt-3 space-y-3 text-sm">
-                                                                    <div>
-                                                                        <h5 className="font-bold text-gray-700 dark:text-gray-300 mb-1">Observações:</h5>
-                                                                        <p className="text-muted-foreground whitespace-pre-wrap">{payment.comments}</p>
-                                                                    </div>
-                                                                    </div>
-                                                                </motion.div>
-                                                                </motion.div>
-                                                            )}
-                                                            </AnimatePresence>
-                                                            <AnimatePresence>
-                                                            {payment && isExpanded(payment.id, 'delete') && (
-                                                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
-                                                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-danger/20 mx-3 pb-3">
-                                                                    <div className="pt-3 text-center space-y-3">
-                                                                    <p className="text-sm font-semibold text-danger">Confirmar exclusão do pagamento?</p>
-                                                                    <div className="flex justify-center gap-3">
-                                                                        <button onClick={() => setExpandedDetail(null)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted">Cancelar</button>
-                                                                        <button onClick={() => handleConfirmPaymentDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
-                                                                    </div>
-                                                                    </div>
-                                                                </motion.div>
-                                                                </motion.div>
-                                                            )}
-                                                            </AnimatePresence>
-                                                        </motion.div>
-                                                    )})}
+                                                                </AnimatePresence>
+                                                                <AnimatePresence>
+                                                                {payment && isExpanded(payment.id, 'delete') && (
+                                                                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
+                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-danger/20 mx-3 pb-3">
+                                                                        <div className="pt-3 text-center space-y-3">
+                                                                        <p className="text-sm font-semibold text-danger">Confirmar exclusão do pagamento?</p>
+                                                                        <div className="flex justify-center gap-3">
+                                                                            <button onClick={() => setExpandedDetail(null)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted">Cancelar</button>
+                                                                            <button onClick={() => handleConfirmPaymentDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
+                                                                        </div>
+                                                                        </div>
+                                                                    </motion.div>
+                                                                    </motion.div>
+                                                                )}
+                                                                </AnimatePresence>
+                                                            </motion.div>
+                                                        )
+                                                    })}
                                                 </div>
                                             </motion.div>
                                         )}
@@ -797,7 +798,7 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
     const { paymentId, returnView } = viewState as { name: 'edit-payment-form', paymentId: string, returnView: ViewState };
     const [loading, setLoading] = useState(true);
     const [accounts, setAccounts] = useState<Account[]>([]);
-    const [paymentDetails, setPaymentDetails] = useState<{ payment: Payment, transaction: Transaction } | null>(null);
+    const [paymentDetails, setPaymentDetails] = useState<{ payment: Payment, transaction: Transaction | null } | null>(null);
     const toast = useToast();
 
     const [formState, setFormState] = useState({ 
@@ -826,7 +827,7 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
                         comments: details.payment.comments || '',
                         attachmentUrl: details.payment.attachmentUrl || '',
                         attachmentFilename: details.payment.attachmentFilename || '',
-                        accountId: details.transaction.accountId,
+                        accountId: details.transaction?.accountId || '',
                     });
                 }
                 setAccounts(accountsData);
@@ -874,7 +875,7 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
         if (isSubmitting || !paymentDetails) return;
         setIsSubmitting(true);
         try {
-            const { warning } = await updatePaymentAndTransaction(paymentId, paymentDetails.transaction.id, formState);
+            const { warning } = await updatePaymentAndTransaction(paymentId, paymentDetails.transaction?.id, formState);
             if (warning) {
                 toast.success("Pagamento atualizado, mas o anexo falhou.");
                 toast.info(warning);
@@ -914,8 +915,17 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
             <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                 <div className="p-4 bg-primary/10 rounded-lg text-center">
                     <p className="text-sm font-medium text-primary">Editando pagamento de {monthName}:</p>
-                    <p className="text-3xl font-bold text-primary">{formatCurrency(paymentDetails.transaction.amount)}</p>
+                    <p className="text-3xl font-bold text-primary">{formatCurrency(paymentDetails.payment.amount)}</p>
                 </div>
+
+                {!paymentDetails.transaction && (
+                    <div className="p-3 bg-yellow-100/70 dark:bg-yellow-900/30 rounded-lg flex items-start gap-3 border border-yellow-300/50 dark:border-yellow-500/30">
+                        <Info className="h-5 w-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-yellow-900 dark:text-yellow-200">
+                            Este é um <strong className="font-semibold">pagamento histórico</strong> e não possui uma transação financeira associada. A conta de destino não pode ser alterada.
+                        </p>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -927,12 +937,14 @@ export const PaymentEditFormPage: React.FC<{ viewState: ViewState; setView: (vie
                           required
                         />
                     </div>
-                    <div>
-                        <label htmlFor="accountId" className={labelClass}>Conta de Destino</label>
-                        <select id="accountId" value={formState.accountId} onChange={e => setFormState(s => ({...s, accountId: e.target.value}))} required className={`${inputClass} !py-3`}>
-                            {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
-                        </select>
-                    </div>
+                    {paymentDetails.transaction && (
+                        <div>
+                            <label htmlFor="accountId" className={labelClass}>Conta de Destino</label>
+                            <select id="accountId" value={formState.accountId} onChange={e => setFormState(s => ({...s, accountId: e.target.value}))} required className={`${inputClass} !py-3`}>
+                                {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                            </select>
+                        </div>
+                    )}
                 </div>
                 <div>
                     <label htmlFor="comments" className={labelClass}>Observações (Opcional)</label>

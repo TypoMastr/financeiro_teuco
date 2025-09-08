@@ -214,8 +214,8 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                     <motion.h3 variants={itemVariants} className="text-xl md:text-2xl font-bold mb-6">Informações Pessoais</motion.h3>
                     <motion.div className="space-y-6" variants={containerVariants}>
                         <InputField id="name" name="name" label="Nome Completo" type="text" value={member.name} onChange={handleInputChange} required icon={<User className="h-5 w-5"/>} />
-                        <InputField id="email" name="email" label="E-mail" type="email" value={member.email} onChange={handleInputChange} required icon={<Mail className="h-5 w-5"/>} />
-                        <InputField id="phone" name="phone" label="Telefone" type="tel" value={member.phone} onChange={handleInputChange} required icon={<Phone className="h-5 w-5"/>} maxLength={15} />
+                        <InputField id="email" name="email" label="E-mail" type="email" value={member.email} onChange={handleInputChange} icon={<Mail className="h-5 w-5"/>} />
+                        <InputField id="phone" name="phone" label="Telefone" type="tel" value={member.phone} onChange={handleInputChange} icon={<Phone className="h-5 w-5"/>} maxLength={15} />
                         <motion.div variants={itemVariants}>
                             <label className="block text-base font-semibold text-foreground dark:text-dark-foreground">Data de Nascimento</label>
                             <div className="relative mt-2">
