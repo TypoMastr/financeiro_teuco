@@ -45,14 +45,27 @@ const overdueItemVariants: Variants = {
     visible: { opacity: 1, x: 0 },
 }
 
-const MemberRow: React.FC<{ member: Member; onSelect: (id: string) => void; expandedMemberId: string | null; setExpandedMemberId: (id: string | null) => void; setView: (view: ViewState) => void; }> = ({ member, onSelect, expandedMemberId, setExpandedMemberId, setView }) => {
+// State subset for props, full type is in App.tsx
+interface MembersListStateSubset {
+  searchTerm: string;
+  filters: { status: string; activity: string; sort: SortOption };
+  expandedMemberId: string | null;
+}
+
+const MemberRow: React.FC<{ 
+    member: Member; 
+    onSelect: (id: string) => void; 
+    expandedMemberId: string | null;
+    setListState: React.Dispatch<React.SetStateAction<MembersListStateSubset & { scrollPosition: number }>>;
+    setView: (view: ViewState) => void; 
+}> = ({ member, onSelect, expandedMemberId, setListState, setView }) => {
     const status = statusStyles[member.paymentStatus];
     const isExpanded = expandedMemberId === member.id;
 
     const handleToggleExpand = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (member.overdueMonthsCount > 0) {
-            setExpandedMemberId(isExpanded ? null : member.id);
+            setListState(s => ({ ...s, expandedMemberId: isExpanded ? null : member.id }));
         }
     };
 
@@ -81,10 +94,12 @@ const MemberRow: React.FC<{ member: Member; onSelect: (id: string) => void; expa
                             {member.name.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                            <p className="font-semibold text-base sm:text-lg text-foreground dark:text-dark-foreground truncate">{member.name}</p>
-                            <div className="hidden sm:flex items-center gap-x-4 gap-y-1 flex-wrap text-xs sm:text-sm text-muted-foreground dark:text-dark-muted-foreground mt-1">
-                                <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{formatPhone(member.phone)}</span>
-                                <span className="flex items-center gap-1.5"><DollarSign className="h-3.5 w-3.5" />{formatCurrency(member.monthlyFee)}</span>
+                            <p className="font-semibold text-base sm:text-lg text-foreground dark:text-dark-foreground break-words">{member.name}</p>
+                            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs sm:text-sm text-muted-foreground dark:text-dark-muted-foreground mt-1">
+                                {member.monthlyFee > 0 && (
+                                    <span>{formatCurrency(member.monthlyFee)}</span>
+                                )}
+                                <span className="hidden sm:flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{formatPhone(member.phone)}</span>
                             </div>
                         </div>
                     </div>
@@ -171,14 +186,15 @@ const FilterChip: React.FC<{ label: string, value: string, selected: boolean, on
     </motion.button>
 );
 
+interface MembersProps {
+  setView: (view: ViewState) => void;
+  listState: MembersListStateSubset;
+  setListState: React.Dispatch<React.SetStateAction<MembersListStateSubset & { scrollPosition: number }>>;
+}
 
-export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setView }) => {
+export const Members: React.FC<MembersProps> = ({ setView, listState, setListState }) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filters, setFilters] = useState<{ status: string, activity: string, sort: SortOption }>({ status: 'all', activity: 'Ativo', sort: 'name_asc' });
-  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
-  
   const isInitialLoad = useRef(true);
 
   const fetchData = useCallback(async (isUpdate = false) => {
@@ -203,6 +219,8 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
     const interval = setInterval(() => fetchData(true), 30000); // Auto-refresh in background
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  const { searchTerm, filters, expandedMemberId } = listState;
 
   const filteredAndSortedMembers = useMemo(() => {
     return members
@@ -236,9 +254,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
   }, [members, filters, searchTerm]);
   
   const handleActivityFilterChange = (activityValue: string) => {
-    // When changing the main activity filter, reset the payment status filter
-    // to avoid conflicts (e.g., filtering for "Desligado" members with "Atrasado" payment status, which is impossible).
-    setFilters(f => ({ ...f, activity: activityValue, status: 'all' }));
+    setListState(s => ({ ...s, filters: { ...s.filters, activity: activityValue }, status: 'all', expandedMemberId: null }));
   };
 
   const containerVariants: Variants = {
@@ -270,7 +286,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                             placeholder="Buscar por nome..."
                             className="w-full text-base p-3 pl-12 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all"
                             value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
+                            onChange={e => setListState(s => ({...s, searchTerm: e.target.value}))}
                         />
                     </div>
                      <div className="hidden sm:grid sm:grid-cols-3 gap-3">
@@ -293,7 +309,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                             <label className="text-xs font-semibold text-muted-foreground ml-1 mb-1 block">Pagamento</label>
                             <select
                                 value={filters.status}
-                                onChange={(e) => setFilters(f => ({...f, status: e.target.value}))}
+                                onChange={(e) => setListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
                                 className={selectClass}
                             >
                                 <option value="all">Todos</option>
@@ -332,7 +348,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                  </select>
                  <select
                     value={filters.status}
-                    onChange={(e) => setFilters(f => ({...f, status: e.target.value}))}
+                    onChange={(e) => setListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
                     className="w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
                  >
                     <option value="all">Todos Pagamentos</option>
@@ -357,7 +373,7 @@ export const Members: React.FC<{setView: (view: ViewState) => void}> = ({ setVie
                                     member={member} 
                                     onSelect={(id) => setView({ name: 'member-profile', id })}
                                     expandedMemberId={expandedMemberId}
-                                    setExpandedMemberId={setExpandedMemberId}
+                                    setListState={setListState}
                                     setView={setView}
                                 />
                             ))
