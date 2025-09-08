@@ -232,7 +232,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-2 mt-2 text-sm text-muted-foreground">
                                    <div className={`py-1 px-3 rounded-full font-semibold text-xs ${activityStatusStyles[member.activityStatus]}`}>{member.activityStatus}</div>
                                    {member.onLeave && <div className="py-1 px-3 rounded-full font-semibold text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Em Licença</div>}
-                                   <span className="py-1 px-3 rounded-full font-semibold text-xs bg-muted dark:bg-dark-muted text-muted-foreground dark:text-dark-muted-foreground flex items-center gap-1.5"><Calendar className="h-3 w-3"/>Desde {new Date(member.joinDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric'})}</span>
+                                   <span className="py-1 px-3 rounded-full font-semibold text-xs bg-muted dark:bg-dark-muted text-muted-foreground dark:text-dark-muted-foreground flex items-center gap-1.5"><Calendar className="h-3 w-3"/>Desde {new Date(member.joinDate).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'})}</span>
                                 </div>
                                 {/* Departure date display removed due to schema mismatch error */}
                             </motion.div>
@@ -394,7 +394,9 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                                         const isDue = new Date(month + '-01') < new Date() && !isPaid && member.activityStatus !== 'Desligado';
                                                         const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
 
-                                                        if (!isPaid && onLeave) {
+                                                        if (payment) {
+                                                            // Always show payment if it exists
+                                                        } else if (onLeave) {
                                                             return (
                                                                 <div key={month} className="flex items-center gap-2 p-2 sm:p-3 bg-blue-100/50 dark:bg-blue-900/20 rounded-lg">
                                                                     <Briefcase className="h-4 w-4 text-blue-500 flex-shrink-0"/>
@@ -417,7 +419,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                                                         {payment && (
                                                                             <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
                                                                                 <span className="font-bold">{formatCurrency(payment.amount)}</span>
-                                                                                <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR')}</span>
+                                                                                <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
                                                                             </div>
                                                                         )}
                                                                     </div>
