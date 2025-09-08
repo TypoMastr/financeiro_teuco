@@ -646,7 +646,6 @@ export const updatePaymentAndTransaction = async (
     }
     
     const payDescription = generateDetailedUpdateMessage(oldPaymentData, updatedPayment, 'Pagamento', `ref. ${oldPaymentData.reference_month}`, lookupData);
-    // FIX: Replaced the undefined variable 'oldPay' with 'oldPaymentData' to correctly log the undo data for a payment update.
     await addLogEntry(payDescription, 'update', 'payment', oldPaymentData);
     
     return { warning };
@@ -1270,7 +1269,8 @@ export const getUnlinkedExpenses = async (): Promise<Transaction[]> => {
 export const getDashboardStats = async (): Promise<Stats> => {
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
-    const endOfMonthWithTime = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const endOfMonthWithTime = new Date(Date.UTC(endOfMonth.getFullYear(), endOfMonth.getMonth(), endOfMonth.getDate(), 23, 59, 59, 999)).toISOString();
     const currentMonthStr = today.toISOString().slice(0, 7);
 
     const [members, payments, expenses, accountsWithBalance, futureIncome, pendingBills] = await Promise.all([
@@ -1279,7 +1279,7 @@ export const getDashboardStats = async (): Promise<Stats> => {
         supabase.from('transactions').select('amount').eq('type', 'expense').gte('date', startOfMonth).lte('date', endOfMonthWithTime),
         getAccountsWithBalance(),
         supabase.from('transactions').select('amount').eq('type', 'income').gt('date', today.toISOString()).lte('date', endOfMonthWithTime),
-        supabase.from('payable_bills').select('amount').in('status', ['pending', 'overdue']).gte('due_date', startOfMonth).lte('due_date', endOfMonthWithTime.slice(0, 10))
+        supabase.from('payable_bills').select('amount').in('status', ['pending', 'overdue']).gte('due_date', startOfMonth).lte('due_date', endOfMonth.toISOString().slice(0, 10))
     ]);
 
     if (payments.error) throw payments.error;
@@ -1357,7 +1357,9 @@ export const getHistoricalMonthlySummary = async (): Promise<{ month: string, in
 
 export const getOverdueReport = async (): Promise<Member[]> => {
     const members = await getMembers();
-    return members.filter(m => m.paymentStatus === PaymentStatus.Atrasado && m.activityStatus === 'Ativo');
+    return members
+        .filter(m => m.paymentStatus === PaymentStatus.Atrasado && m.activityStatus === 'Ativo')
+        .sort((a, b) => a.name.localeCompare(b.name));
 };
 
 export const getRevenueReport = async (startDate: string, endDate: string) => {

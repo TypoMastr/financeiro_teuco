@@ -1,6 +1,8 @@
 
 
 
+
+
 import React from 'react';
 import { motion, Variants } from 'framer-motion';
 // FIX: Import types from the corrected types.ts file.
@@ -46,12 +48,19 @@ const OverdueReport: React.FC<{ data: Member[] }> = ({ data }) => {
               </tr>
             </thead>
             <tbody>
-              {member.overdueMonths.map(item => (
-                <tr key={item.month} className="border-b border-border/50 dark:border-dark-border/50">
-                  <td className="py-1.5 px-2 capitalize text-muted-foreground dark:text-dark-muted-foreground">{new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</td>
-                  <td className="text-right px-2 text-foreground dark:text-dark-foreground">{item.amount.toFixed(2)}</td>
-                </tr>
-              ))}
+              {member.overdueMonths.map(item => {
+                const date = new Date(item.month + '-02');
+                const monthName = date.toLocaleDateString('pt-BR', { month: 'long', timeZone: 'UTC' });
+                const year = date.getUTCFullYear();
+                const displayDate = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${year}`;
+                
+                return (
+                  <tr key={item.month} className="border-b border-border/50 dark:border-dark-border/50">
+                    <td className="py-1.5 px-2 text-muted-foreground dark:text-dark-muted-foreground">{displayDate}</td>
+                    <td className="text-right px-2 text-foreground dark:text-dark-foreground">{item.amount.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="font-bold text-foreground dark:text-dark-foreground">
