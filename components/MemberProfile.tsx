@@ -147,39 +147,56 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
         }
     };
     
-    const isDuringLeave = (date: Date, leaves: Leave[]): boolean => {
+    const parseDateAsUTC = useCallback((dateString: string) => {
+        if (!dateString) return new Date(NaN);
+        const datePart = dateString.slice(0, 10);
+        const [year, month, day] = datePart.split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day));
+    }, []);
+
+    const isDuringLeave = useCallback((date: Date, leaves: Leave[]): boolean => {
         return leaves.some(leave => {
-            const startDate = new Date(leave.startDate + 'T00:00:00Z');
-            const endDate = leave.endDate ? new Date(leave.endDate + 'T23:59:59Z') : new Date(); // If no end date, assume leave is active until today
-            return date >= startDate && date <= endDate;
+            const startDate = parseDateAsUTC(leave.startDate);
+            const endDate = leave.endDate ? parseDateAsUTC(leave.endDate) : null;
+
+            if (isNaN(startDate.getTime())) return false;
+
+            if (endDate) {
+                const endOfDay = new Date(endDate);
+                endOfDay.setUTCHours(23, 59, 59, 999);
+                return date >= startDate && date <= endOfDay;
+            }
+            return date >= startDate;
         });
-    };
+    }, [parseDateAsUTC]);
 
     const paymentMonthsByYear = useMemo(() => {
         if (!member) return {};
         const groups: Record<string, { month: string, monthName: string, payment: Payment | null, onLeave: boolean }[]> = {};
-        let currentDate = new Date(member.joinDate);
-        currentDate.setDate(1);
         
-        const defaultEndDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1));
-        const endDate = member.activityStatus === 'Desligado' ? new Date() : defaultEndDate;
+        let currentDate = parseDateAsUTC(member.joinDate);
+        currentDate.setUTCDate(1);
+        
+        const today = new Date();
+        const defaultEndDate = new Date(Date.UTC(today.getUTCFullYear() + 1, today.getUTCMonth(), 1));
+        const endDate = member.activityStatus === 'Desligado' ? today : defaultEndDate;
 
         while (currentDate <= endDate) {
-            const year = currentDate.getFullYear().toString();
+            const year = currentDate.getUTCFullYear().toString();
             const monthStr = currentDate.toISOString().slice(0, 7);
             if (!groups[year]) groups[year] = [];
             
             groups[year].push({
                 month: monthStr,
-                monthName: currentDate.toLocaleDateString('pt-BR', { month: 'long'}),
+                monthName: currentDate.toLocaleDateString('pt-BR', { month: 'long', timeZone: 'UTC' }),
                 payment: payments.find(p => p.referenceMonth === monthStr) || null,
                 onLeave: isDuringLeave(currentDate, leaves),
             });
-            currentDate.setMonth(currentDate.getMonth() + 1);
+            currentDate.setUTCMonth(currentDate.getUTCMonth() + 1);
         }
         Object.keys(groups).forEach(year => groups[year].reverse());
         return groups;
-    }, [member, payments, leaves]);
+    }, [member, payments, leaves, parseDateAsUTC, isDuringLeave]);
 
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
     if (!member) return <div className="text-center py-10">Membro não encontrado. <button onClick={() => setView({ name: 'members' })} className="text-primary underline">Voltar para a lista</button></div>;
@@ -391,7 +408,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                                 <div className="px-2 pb-2 space-y-1">
                                                     {paymentMonthsByYear[year].map(({month, monthName, payment, onLeave}) => {
                                                         const isPaid = !!payment;
-                                                        const isDue = new Date(month + '-01') < new Date() && !isPaid && member.activityStatus !== 'Desligado';
+                                                        const isDue = new Date(month + '-01') <= new Date() && !isPaid && member.activityStatus !== 'Desligado';
                                                         const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
 
                                                         if (payment) {
@@ -583,9 +600,11 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
         attachmentUrl: '', 
         attachmentFilename: '',
         accountId: '',
+        amount: 0,
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [amountStr, setAmountStr] = useState('');
 
     const [isHistoricalPayment, setIsHistoricalPayment] = useState(false);
 
@@ -602,6 +621,10 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
         setIsHistoricalPayment(shouldShowHistoricalOption);
     }, [shouldShowHistoricalOption]);
     
+    const formatCurrencyForInput = (value: number): string => {
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    };
+    
     useEffect(() => {
         const loadData = async () => {
             if (memberId) {
@@ -611,7 +634,11 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
                     accountsApi.getAll()
                 ]);
                 
-                if (memberData) setMember(memberData);
+                if (memberData) {
+                    setMember(memberData);
+                    setFormState(s => ({ ...s, amount: memberData.monthlyFee }));
+                    setAmountStr(formatCurrencyForInput(memberData.monthlyFee));
+                }
                 setAccounts(accountsData);
                 if (accountsData.length > 0) {
                     setFormState(s => ({ ...s, accountId: accountsData[0].id }));
@@ -674,7 +701,7 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
             const { warning } = await addIncomeTransactionAndPayment(
               { 
                 description: `Mensalidade ${member.name} - ${new Date(month + '-02').toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'})}`,
-                amount: member.monthlyFee,
+                amount: formState.amount,
                 date: new Date(formState.paymentDate + 'T12:00:00Z').toISOString(),
                 accountId: formState.accountId,
                 comments: formState.comments,
@@ -709,6 +736,18 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
             setFormState(prev => ({ ...prev, attachmentUrl: URL.createObjectURL(file), attachmentFilename: file.name }));
         }
     };
+
+    const parseCurrencyFromInput = (formattedValue: string): number => {
+        const numericString = formattedValue.replace(/\D/g, '');
+        return numericString ? parseInt(numericString, 10) / 100 : 0;
+    };
+
+    const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        const numericValue = parseCurrencyFromInput(value);
+        setFormState(prev => ({ ...prev, amount: numericValue }));
+        setAmountStr(formatCurrencyForInput(numericValue));
+    };
     
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
     if (!member || !month || !returnView) {
@@ -727,8 +766,15 @@ export const PaymentFormPage: React.FC<{ viewState: ViewState; setView: (view: V
             
             <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                  <div className="p-4 bg-primary/10 rounded-lg text-center">
-                    <p className="text-sm font-medium text-primary">Valor para {monthName}:</p>
-                    <p className="text-3xl font-bold text-primary">{formatCurrency(member.monthlyFee)}</p>
+                    <label htmlFor="paymentAmount" className="text-sm font-medium text-primary">Valor para {monthName}:</label>
+                    <input
+                        id="paymentAmount"
+                        type="text"
+                        value={amountStr}
+                        onChange={handleAmountChange}
+                        className="w-full text-3xl font-bold text-primary bg-transparent border-0 text-center focus:ring-0 p-0"
+                        required
+                    />
                 </div>
 
                 {shouldShowHistoricalOption && (

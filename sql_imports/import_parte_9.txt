@@ -1,0 +1,65 @@
+-- Script de importação para o Supabase - PARTE 9 DE 18
+
+-- Inicia uma transação para garantir que todos os dados sejam inseridos corretamente.
+DO $$
+DECLARE
+    -- Variável para armazenar os IDs dos membros recém-criados
+    member_id_var UUID;
+BEGIN
+
+    -- 41. DIANA GUEDES WEBER
+    INSERT INTO public.members (name, is_exempt, on_leave, join_date, monthly_fee, activity_status)
+    VALUES ('DIANA GUEDES WEBER', false, false, '2025-01-01', 70, 'Ativo')
+    RETURNING id INTO member_id_var;
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-02-03', '2025-01', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-02-13', '2025-02', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-03-28', '2025-03', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-03-28', '2025-04', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-05-29', '2025-05', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-05-29', '2025-06', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-07-30', '2025-07', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2024-08-30', '2025-08', 'Pagamento histórico (não gera transação financeira)', NULL);
+
+    -- 42. DILMA CABRAL
+    INSERT INTO public.members (name, is_exempt, on_leave, join_date, monthly_fee, activity_status)
+    VALUES ('DILMA CABRAL', false, false, '2025-01-01', 100, 'Ativo')
+    RETURNING id INTO member_id_var;
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-01-03', '2025-01', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-01-25', '2025-02', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-03-07', '2025-03', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-03-29', '2025-04', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-04-26', '2025-05', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-06-07', '2025-06', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 100, '2025-07-07', '2025-07', 'Pagamento histórico (não gera transação financeira)', NULL);
+
+    -- 43. EDUARDO DE OLIVEIRA E CONCEIÇÃO (DUDÃO)
+    INSERT INTO public.members (name, is_exempt, on_leave, join_date, monthly_fee, activity_status)
+    VALUES ('EDUARDO DE OLIVEIRA E CONCEIÇÃO (DUDÃO)', false, false, '2025-01-01', 0, 'Ativo');
+
+    -- 44. ELISÂNGELA DE FARIA
+    INSERT INTO public.members (name, is_exempt, on_leave, join_date, monthly_fee, activity_status)
+    VALUES ('ELISÂNGELA DE FARIA', false, false, '2025-01-01', 70, 'Ativo')
+    RETURNING id INTO member_id_var;
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-01-02', '2025-01', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-02-04', '2025-02', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-03-01', '2025-03', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-04-02', '2025-04', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-05-01', '2025-05', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-06-02', '2025-06', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-07-02', '2025-07', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-08-01', '2025-08', 'Pagamento histórico (não gera transação financeira)', NULL);
+
+    -- 45. ELIZABETH MAGALHÃES VINAGRE
+    INSERT INTO public.members (name, is_exempt, on_leave, join_date, monthly_fee, activity_status)
+    VALUES ('ELIZABETH MAGALHÃES VINAGRE', false, false, '2025-01-01', 70, 'Ativo')
+    RETURNING id INTO member_id_var;
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-01-02', '2025-01', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-02-03', '2025-02', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-03-01', '2025-03', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-04-01', '2025-04', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-05-02', '2025-05', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-06-02', '2025-06', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-07-01', '2025-07', 'Pagamento histórico (não gera transação financeira)', NULL);
+    INSERT INTO public.payments (member_id, amount, payment_date, reference_month, comments, transaction_id) VALUES (member_id_var, 70, '2025-07-29', '2025-08', 'Pagamento histórico (não gera transação financeira)', NULL);
+
+END $$;

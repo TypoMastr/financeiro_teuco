@@ -251,26 +251,45 @@ const cleanTransactionDataForSupabase = (transactionData: any) => {
 };
 
 // --- BUSINESS LOGIC ---
+const getUTCDateFromStr = (dateStr: string): Date => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+        return new Date(NaN); // Retorna uma data inválida
+    }
+    const datePart = dateStr.slice(0, 10);
+    const [year, month, day] = datePart.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+};
+
 const isDuringLeave = (date: Date, leaves: Leave[]): boolean => {
     return leaves.some(leave => {
-        const startDate = new Date(leave.startDate + 'T00:00:00Z');
-        const endDate = leave.endDate ? new Date(leave.endDate + 'T23:59:59Z') : new Date(); // If no end date, assume leave is active until today
-        return date >= startDate && date <= endDate;
+        const startDate = getUTCDateFromStr(leave.startDate);
+        const endDate = leave.endDate ? getUTCDateFromStr(leave.endDate) : null;
+
+        if (isNaN(startDate.getTime())) return false;
+
+        if (endDate) {
+            const endOfDay = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999));
+            return date >= startDate && date <= endOfDay;
+        }
+        return date >= startDate;
     });
 };
 
 const isCurrentlyOnLeave = (leaves: Leave[]): boolean => {
     const now = new Date();
-    now.setHours(0, 0, 0, 0); 
+    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     
     return leaves.some(leave => {
-        const startDate = new Date(leave.startDate + 'T00:00:00Z');
-        const endDate = leave.endDate ? new Date(leave.endDate + 'T23:59:59Z') : null;
+        const startDate = getUTCDateFromStr(leave.startDate);
+        const endDate = leave.endDate ? getUTCDateFromStr(leave.endDate) : null;
         
+        if (isNaN(startDate.getTime())) return false;
+
         if (endDate) {
-            return now >= startDate && now <= endDate;
+            const endOfDay = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999));
+            return todayUTC >= startDate && todayUTC <= endOfDay;
         }
-        return now >= startDate;
+        return todayUTC >= startDate;
     });
 };
 
@@ -302,19 +321,17 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
         };
     }
     
+    const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
+    const overdueMonths: OverdueMonth[] = [];
+    const today = new Date();
+    const firstOfCurrentMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+
+    let currentDate = getUTCDateFromStr(memberWithDefaults.joinDate);
+    currentDate.setUTCDate(1); // Garante que a verificação comece no primeiro dia do mês de adesão.
+    
     const finalStatuses = ['Desligado', 'Arquivado'];
     if (finalStatuses.includes(memberWithDefaults.activityStatus)) {
-        const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
-        const overdueMonths: OverdueMonth[] = [];
-        let currentDate = new Date(memberWithDefaults.joinDate);
-        currentDate.setUTCHours(0, 0, 0, 0);
-        currentDate.setUTCDate(1);
-        
-        const departureDate = new Date(); 
-        departureDate.setUTCHours(0, 0, 0, 0);
-
-
-        while (currentDate < departureDate) {
+        while (currentDate < firstOfCurrentMonth) {
             const monthStr = currentDate.toISOString().slice(0, 7);
             if (!paidMonths.has(monthStr) && !isDuringLeave(currentDate, memberLeaves)) {
                 overdueMonths.push({ month: monthStr, amount: memberWithDefaults.monthlyFee });
@@ -336,15 +353,7 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
         };
     }
     
-    const paidMonths = new Set(memberPayments.map(p => p.referenceMonth));
-    const overdueMonths: OverdueMonth[] = [];
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    let currentDate = new Date(memberWithDefaults.joinDate);
-    currentDate.setUTCHours(0, 0, 0, 0);
-    currentDate.setUTCDate(1);
-
-    while (currentDate < today) {
+    while (currentDate <= firstOfCurrentMonth) {
         const monthStr = currentDate.toISOString().slice(0, 7);
         if (!paidMonths.has(monthStr) && !isDuringLeave(currentDate, memberLeaves)) {
             overdueMonths.push({ month: monthStr, amount: memberWithDefaults.monthlyFee });
@@ -1532,7 +1541,6 @@ export const getChatbotContextData = async () => {
             ...stats,
             dataHoraAtual: new Date().toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })
         },
-// FIX: Included `onLeave` and `isExempt` in the destructuring and returned object to provide more complete context to the chatbot.
         membros: members.map(({ id, name, email, phone, birthday, monthlyFee, activityStatus, paymentStatus, totalDue, onLeave, isExempt }) => {
             const memberLeaves = leavesByMember.get(id) || [];
             return {

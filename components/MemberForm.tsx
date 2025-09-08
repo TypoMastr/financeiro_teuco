@@ -257,7 +257,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                         </motion.div>
 
                         <motion.div variants={itemVariants}>
-                             <label className="block text-base font-semibold text-foreground dark:text-dark-foreground">Início da Contribuição</label>
+                             <label className="block text-base font-semibold text-foreground dark:text-dark-foreground">Data de Filiação / Início Contribuição</label>
                              <div className="relative mt-2">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"><Calendar className="h-5 w-5"/></span>
                                 <DateField
@@ -266,7 +266,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                                   value={(member.joinDate || '').slice(0,10)}
                                   onChange={date => setMember(prev => ({...prev, joinDate: date}))}
                                   className="block w-full pl-12 pr-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm"
-                                  required
+                                  required={!member.isExempt}
                                 />
                             </div>
                         </motion.div>
