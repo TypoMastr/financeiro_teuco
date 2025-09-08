@@ -130,10 +130,6 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
             <StatCard title="Recebido no Mês" value={formatCurrency(stats?.monthlyRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" onClick={() => setView({ name: 'financial' })}/>
             <StatCard title="Pendente no Mês" value={formatCurrency(stats?.currentMonthPendingAmount || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-warning" onClick={() => setView({ name: 'members' })}/>
             <StatCard title="Previsão Próx. Mês" value={formatCurrency(stats?.nextMonthProjectedRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-blue-500" />
-            <StatCard title="Membros Ativos" value={stats?.totalMembers || 0} icon={<Users className="w-5 h-5" />} />
-            <StatCard title="Colaboradores" value={stats?.contributingMembers || 0} icon={<Users className="w-5 h-5" />} />
-            <StatCard title="Isentos" value={stats?.exemptMembers || 0} icon={<Users className="w-5 h-5" />} />
-            <StatCard title="Inadimplência" value={`${(stats?.overduePercentage || 0).toFixed(1)}%`} icon={<PieChart className="w-5 h-5" />} colorClass="text-warning" />
         </div>
       </motion.div>
 
