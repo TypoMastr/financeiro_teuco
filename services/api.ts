@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType, Leave } from '../types';
 
@@ -645,6 +646,7 @@ export const updatePaymentAndTransaction = async (
     }
     
     const payDescription = generateDetailedUpdateMessage(oldPaymentData, updatedPayment, 'Pagamento', `ref. ${oldPaymentData.reference_month}`, lookupData);
+    // FIX: Replaced the undefined variable 'oldPay' with 'oldPaymentData' to correctly log the undo data for a payment update.
     await addLogEntry(payDescription, 'update', 'payment', oldPaymentData);
     
     return { warning };
@@ -1276,7 +1278,7 @@ export const getDashboardStats = async (): Promise<Stats> => {
         supabase.from('payments').select('amount').gte('payment_date', startOfMonth).lte('payment_date', endOfMonthWithTime),
         supabase.from('transactions').select('amount').eq('type', 'expense').gte('date', startOfMonth).lte('date', endOfMonthWithTime),
         getAccountsWithBalance(),
-        supabase.from('transactions').select('amount').eq('type', 'income').gt('date', today.toISOString()),
+        supabase.from('transactions').select('amount').eq('type', 'income').gt('date', today.toISOString()).lte('date', endOfMonthWithTime),
         supabase.from('payable_bills').select('amount').in('status', ['pending', 'overdue']).gte('due_date', startOfMonth).lte('due_date', endOfMonthWithTime.slice(0, 10))
     ]);
 

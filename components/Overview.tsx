@@ -116,6 +116,12 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
     const name = now.toLocaleDateString('pt-BR', { month: 'long' });
     return name.charAt(0).toUpperCase() + name.slice(1);
   }, []);
+
+  const currentMonthName = useMemo(() => {
+    const now = new Date();
+    const name = now.toLocaleDateString('pt-BR', { month: 'long' });
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }, []);
   
   const groupedAndFilteredHistory = useMemo(() => {
     const data = historicalData
@@ -156,10 +162,10 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
         animate="visible"
         variants={containerVariants}
     >
-      <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</h2>
+      <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</motion.h2>
 
       <motion.div variants={itemVariants} className="space-y-4">
-        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo do Mês (Médiuns)</h3>
+        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo de {currentMonthName}</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard title="Receitas" value={formatCurrency(stats?.monthlyRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" />
             <StatCard title="Despesas" value={formatCurrency(stats?.monthlyExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-danger" />
@@ -205,13 +211,19 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <StatCard title="Saldo Geral" value={formatCurrency(stats?.currentBalance || 0)} icon={<Wallet className="w-5 h-5" />} colorClass="text-blue-500" />
               <StatCard 
-                title="Receitas Futuras" 
+                title={`${currentMonthName} (Receitas)`}
                 value={formatCurrency(totalProjectedIncome)} 
                 icon={<TrendingUp className="w-5 h-5" />} 
                 colorClass="text-green-400"
-                description="Mensalidades/Colaboradores/PagBank"
+                description="Projeção do mês"
               />
-              <StatCard title="Despesas Futuras" value={formatCurrency(stats?.projectedExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-orange-400" />
+              <StatCard 
+                title={`${currentMonthName} (Despesas)`} 
+                value={formatCurrency(stats?.projectedExpenses || 0)} 
+                icon={<TrendingDown className="w-5 h-5" />} 
+                colorClass="text-orange-400"
+                description="Projeção do mês"
+              />
           </div>
       </motion.div>
       
