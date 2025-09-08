@@ -162,7 +162,7 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
         animate="visible"
         variants={containerVariants}
     >
-      <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</motion.h2>
+      <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</h2>
 
       <motion.div variants={itemVariants} className="space-y-4">
         <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo de {currentMonthName}</h3>
@@ -215,14 +215,14 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
                 value={formatCurrency(totalProjectedIncome)} 
                 icon={<TrendingUp className="w-5 h-5" />} 
                 colorClass="text-green-400"
-                description="Projeção do mês"
+                description="Mensalidades/Colaboradores/PagBank"
               />
               <StatCard 
                 title={`${currentMonthName} (Despesas)`} 
                 value={formatCurrency(stats?.projectedExpenses || 0)} 
                 icon={<TrendingDown className="w-5 h-5" />} 
                 colorClass="text-orange-400"
-                description="Projeção do mês"
+                description="Contas a pagar"
               />
           </div>
       </motion.div>
