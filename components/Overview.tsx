@@ -20,7 +20,7 @@ const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style:
 
 
 // --- Sub-components ---
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; colorClass?: string; onClick?: () => void; }> = ({ title, value, icon, colorClass = 'text-muted-foreground dark:text-dark-muted-foreground', onClick }) => (
+const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; colorClass?: string; onClick?: () => void; description?: string; }> = ({ title, value, icon, colorClass = 'text-muted-foreground dark:text-dark-muted-foreground', onClick, description }) => (
   <motion.div
     variants={itemVariants}
     onClick={onClick}
@@ -33,6 +33,7 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.Re
       <div className={colorClass}>{icon}</div>
     </div>
     <p className={`text-xl sm:text-2xl font-bold font-display text-foreground dark:text-dark-foreground mt-1 ${colorClass}`}>{value}</p>
+    {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
   </motion.div>
 );
 
@@ -43,28 +44,71 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
   const [loadingHistorical, setLoadingHistorical] = useState(true);
   const [openHistoryMonth, setOpenHistoryMonth] = useState<string | null>(null);
 
+  const [colaboradoresStats, setColaboradoresStats] = useState<{
+    totalPendenteGeral: number;
+    totalArrecadadoMes: number;
+    projecaoProximoMes: number;
+    mesAtual: string;
+    proximoMes: string;
+  } | null>(null);
+  const [loadingColaboradores, setLoadingColaboradores] = useState(true);
+
   useEffect(() => {
     const fetchAllData = async () => {
       try {
         setLoadingStats(true);
         setLoadingHistorical(true);
-        const [statsData, historicalSummary] = await Promise.all([
+        setLoadingColaboradores(true);
+        
+        const [statsData, historicalSummary, colaboradoresResponse] = await Promise.all([
             getDashboardStats(),
-            getHistoricalMonthlySummary()
+            getHistoricalMonthlySummary(),
+            fetch('https://teuco.com.br/colaboradores/partials/resumo.php').catch(e => {
+                console.error("Fetch colaboradores failed:", e);
+                return null;
+            })
         ]);
         setStats(statsData);
         setHistoricalData(historicalSummary);
+
+        if (colaboradoresResponse && colaboradoresResponse.ok) {
+            const data = await colaboradoresResponse.json();
+            const parseCurrency = (value: string | number) => {
+              if (typeof value === 'number') {
+                  return value;
+              }
+              if (typeof value === 'string') {
+                  return parseFloat(value.replace(/\./g, '').replace(',', '.'));
+              }
+              return 0;
+            };
+            setColaboradoresStats({
+                totalPendenteGeral: parseCurrency(data.total_pendente_geral),
+                totalArrecadadoMes: parseCurrency(data.total_arrecadado_mes),
+                projecaoProximoMes: parseCurrency(data.projecao_proximo_mes),
+                mesAtual: data.mes_atual,
+                proximoMes: data.proximo_mes,
+            });
+        } else {
+             console.error("Erro ao buscar dados dos colaboradores", colaboradoresResponse?.statusText);
+        }
+
       } catch (error) {
         console.error("Erro ao buscar dados da visão geral", error);
       } finally {
         setLoadingStats(false);
         setLoadingHistorical(false);
+        setLoadingColaboradores(false);
       }
     };
     fetchAllData();
   }, []);
   
   const monthlyBalance = (stats?.monthlyRevenue || 0) - (stats?.monthlyExpenses || 0);
+
+  const totalProjectedIncome = (stats?.currentMonthPendingAmount || 0) + 
+                               (colaboradoresStats?.totalPendenteGeral || 0) + 
+                               (stats?.projectedIncome || 0);
 
   const previousMonthName = useMemo(() => {
     const now = new Date();
@@ -112,10 +156,10 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
         animate="visible"
         variants={containerVariants}
     >
-      <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</motion.h2>
+      <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</h2>
 
       <motion.div variants={itemVariants} className="space-y-4">
-        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo do Mês</h3>
+        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo do Mês (Médiuns)</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard title="Receitas" value={formatCurrency(stats?.monthlyRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" />
             <StatCard title="Despesas" value={formatCurrency(stats?.monthlyExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-danger" />
@@ -132,12 +176,41 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
             <StatCard title="Previsão Próx. Mês" value={formatCurrency(stats?.nextMonthProjectedRevenue || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-blue-500" />
         </div>
       </motion.div>
+      
+      <motion.div variants={itemVariants} className="space-y-4">
+        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Colaboradores</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {loadingColaboradores ? (
+                <>
+                    <div className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border animate-pulse"><div className="h-4 bg-muted dark:bg-dark-muted rounded w-3/4 mb-2"></div><div className="h-8 bg-muted dark:bg-dark-muted rounded w-1/2"></div></div>
+                    <div className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border animate-pulse"><div className="h-4 bg-muted dark:bg-dark-muted rounded w-3/4 mb-2"></div><div className="h-8 bg-muted dark:bg-dark-muted rounded w-1/2"></div></div>
+                    <div className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border animate-pulse"><div className="h-4 bg-muted dark:bg-dark-muted rounded w-3/4 mb-2"></div><div className="h-8 bg-muted dark:bg-dark-muted rounded w-1/2"></div></div>
+                </>
+            ) : colaboradoresStats ? (
+                <>
+                    <StatCard title="Total Pendente" value={formatCurrency(colaboradoresStats.totalPendenteGeral)} icon={<DollarSign className="w-5 h-5" />} colorClass="text-danger" />
+                    <StatCard title={`Arrecadado em ${colaboradoresStats.mesAtual}`} value={formatCurrency(colaboradoresStats.totalArrecadadoMes)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-success" />
+                    <StatCard title={`Previsão para ${colaboradoresStats.proximoMes}`} value={formatCurrency(colaboradoresStats.projecaoProximoMes)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-blue-500" />
+                </>
+            ) : (
+                <div className="sm:col-span-3 text-center py-4 bg-card dark:bg-dark-card rounded-lg">
+                    <p className="text-muted-foreground">Não foi possível carregar os dados dos colaboradores.</p>
+                </div>
+            )}
+        </div>
+      </motion.div>
 
       <motion.div variants={itemVariants} className="space-y-4">
           <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Saldos e Projeções</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <StatCard title="Saldo Geral" value={formatCurrency(stats?.currentBalance || 0)} icon={<Wallet className="w-5 h-5" />} colorClass="text-blue-500" />
-              <StatCard title="Receitas Futuras" value={formatCurrency(stats?.projectedIncome || 0)} icon={<TrendingUp className="w-5 h-5" />} colorClass="text-green-400" />
+              <StatCard 
+                title="Receitas Futuras" 
+                value={formatCurrency(totalProjectedIncome)} 
+                icon={<TrendingUp className="w-5 h-5" />} 
+                colorClass="text-green-400"
+                description="Mensalidades/Colaboradores/PagBank"
+              />
               <StatCard title="Despesas Futuras" value={formatCurrency(stats?.projectedExpenses || 0)} icon={<TrendingDown className="w-5 h-5" />} colorClass="text-orange-400" />
           </div>
       </motion.div>

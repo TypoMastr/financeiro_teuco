@@ -1305,8 +1305,7 @@ export const getDashboardStats = async (): Promise<Stats> => {
     
     const overduePercentage = contributingMembers.length > 0 ? (overdueMembersCount / contributingMembers.length) * 100 : 0;
     
-    const originalProjectedIncome = futureIncome.data.reduce((sum, t) => sum + t.amount, 0);
-    const finalProjectedIncome = originalProjectedIncome + currentMonthPendingAmount;
+    const projectedIncome = futureIncome.data.reduce((sum, t) => sum + t.amount, 0);
 
     return {
         totalMembers: activeMembers.length,
@@ -1315,7 +1314,7 @@ export const getDashboardStats = async (): Promise<Stats> => {
         monthlyRevenue: payments.data.reduce((sum, p) => sum + p.amount, 0),
         monthlyExpenses: expenses.data.reduce((sum, t) => sum + t.amount, 0),
         currentBalance: accountsWithBalance.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0),
-        projectedIncome: finalProjectedIncome,
+        projectedIncome: projectedIncome,
         projectedExpenses: pendingBills.data.reduce((sum, b) => sum + b.amount, 0),
         totalOverdueAmount,
         currentMonthPendingAmount,
