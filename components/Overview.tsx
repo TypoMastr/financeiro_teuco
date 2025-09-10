@@ -3,6 +3,7 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { getDashboardStats, getHistoricalMonthlySummary } from '../services/api';
 import { Stats, ViewState } from '../types';
 import { TrendingUp, TrendingDown, Wallet, Scale, ChevronDown, Users, PieChart, DollarSign } from './Icons';
+import { AISummary } from './AISummary';
 
 
 // --- Animation Variants ---
@@ -147,6 +148,12 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
 
   const sortedYears = useMemo(() => Object.keys(groupedAndFilteredHistory).sort((a,b) => parseInt(b) - parseInt(a)), [groupedAndFilteredHistory]);
   
+  const aiSummaryPrompt = `
+      Você é um assistente financeiro. Analise o JSON de estatísticas a seguir e forneça um resumo conciso em linguagem natural.
+      Destaque a saúde financeira geral, mencionando o saldo atual, o balanço do mês (receitas vs. despesas), e a situação dos membros (total, pendentes).
+      Seja amigável e direto. Use negrito para valores e números importantes.
+  `;
+
   if (loadingStats) {
     return (
       <div className="flex justify-center items-center h-full">
@@ -163,6 +170,11 @@ export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ set
         variants={containerVariants}
     >
       <motion.h2 variants={itemVariants} className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Visão Geral</motion.h2>
+
+        <AISummary
+            data={stats}
+            prompt={aiSummaryPrompt}
+        />
 
       <motion.div variants={itemVariants} className="space-y-4">
         <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">Resumo de {currentMonthName}</h3>

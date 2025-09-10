@@ -1,488 +1,494 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-// FIX: Import types from the corrected types.ts file.
-import { ViewState, Account, Transaction, Category, Payee, Tag, Member, Project, PayableBill, Payment } from '../types';
-// FIX: Removed unused 'linkTransactionToPayment' import which caused an error.
-import { getMembers, getAccountsWithBalance, transactionsApi, categoriesApi, payeesApi, tagsApi, projectsApi, accountsApi, getFinancialReport, addIncomeTransactionAndPayment, getPayableBillsForLinking, getFutureIncomeSummary, getFutureIncomeTransactions, getPaymentByTransactionId, updateTransactionAndPaymentLink, payableBillsApi, linkExpenseToBill, deletePayment } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { DollarSign, FileSearch, PlusCircle, Paperclip, X as XIcon, Briefcase, Tag as TagIcon, ArrowLeft, Search, TrendingUp, ChevronRight, Layers, UploadCloud, ClipboardPaste, AlertTriangle, Trash } from './Icons';
+import { ViewState, Account, Category, Payee, Tag, Project, Transaction, ReportData, Member, PayableBill, Stats } from '../types';
+import { 
+    accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi, transactionsApi, 
+    getAccountsWithBalance, getFinancialReport, getFutureIncomeTransactions, 
+    updateTransactionAndPaymentLink, getPaymentByTransactionId, getMembers,
+    payableBillsApi, getDashboardStats
+} from '../services/api';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
+import { DollarSign, TrendingUp, TrendingDown, PlusCircle, Filter, FileText, ChevronRight, Briefcase, Paperclip, ClipboardPaste, Users, PieChart, Layers, Tag as TagIcon, Wallet, History } from './Icons';
+import { AISummary } from './AISummary';
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const formatDate = (dateString: string | null | undefined) => {
-    if (!dateString) return 'Data Inválida';
+    if (!dateString) return 'N/A';
     const date = new Date(dateString.includes('T') ? dateString : dateString + 'T12:00:00Z');
-    if (isNaN(date.getTime())) return 'Data Inválida';
-    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return date.toLocaleDateString('pt-BR');
 };
 
-const formatCurrencyForInput = (value: number): string => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+// --- Animation Variants ---
+const containerVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.07 } },
 };
 
-const parseCurrencyFromInput = (formattedValue: string): number => {
-    const numericString = formattedValue.replace(/\D/g, '');
-    return numericString ? parseInt(numericString, 10) / 100 : 0;
+const itemVariants: Variants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: { y: 0, opacity: 1, transition: { type: 'spring', stiffness: 100 } },
 };
 
+// --- Reusable Expandable Card Component ---
+const ExpandableCard: React.FC<{
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}> = ({ title, icon, children, defaultOpen = true }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
-// --- Sub-components ---
-const AccountBalanceCard: React.FC<{ account: Account, onClick: () => void }> = ({ account, onClick }) => (
-    <motion.div 
-        onClick={onClick}
-        className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4 cursor-pointer group"
-        whileHover={{ y: -3, boxShadow: '0 4px 15px -2px rgba(0,0,0,0.05)' }}
-        transition={{ type: 'spring', stiffness: 200 }}
+  return (
+    <motion.div
+      layout
+      variants={itemVariants}
+      className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border overflow-hidden"
     >
-        <div className="p-3 bg-primary/10 rounded-full">
-            <DollarSign className="w-6 h-6 text-primary" />
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 text-left"
+        aria-expanded={isOpen}
+      >
+        <div className="flex items-center gap-3">
+          <div className="text-primary">{icon}</div>
+          <h3 className="text-lg font-bold font-display text-foreground dark:text-dark-foreground">{title}</h3>
         </div>
-        <div>
-            <h3 className="text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors">{account.name}</h3>
-            <p className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">{formatCurrency(account.currentBalance || 0)}</p>
-        </div>
-    </motion.div>
-);
-
-const TabButton: React.FC<{ label: string, isActive: boolean, onClick: () => void }> = ({ label, isActive, onClick }) => (
-    <button onClick={onClick} className={`px-4 py-2 text-sm font-semibold relative transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
-        {label}
-        {isActive && <motion.div layoutId="financial-tab-indicator" className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-primary" />}
-    </button>
-);
-
-const TransactionRow: React.FC<{ transaction: Transaction, data: any, onClick: () => void, onViewAttachment: (url: string) => void }> = ({ transaction, data, onClick, onViewAttachment }) => {
-    const { categories } = data;
-    const isIncome = transaction.type === 'income';
-    return (
-        <motion.tr 
-          layout 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          onClick={onClick} 
-          className="border-b border-border/50 dark:border-dark-border/50 hover:bg-muted/50 dark:hover:bg-dark-muted/50 cursor-pointer transition-colors"
-        >
-            <td className="py-3 px-4 text-sm">
-                <div className="flex items-center gap-3">
-                     {transaction.attachmentUrl && (
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }} className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full transition-all bg-muted/50 dark:bg-dark-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Paperclip className="h-4 w-4"/></button>
-                    )}
-                    <div>
-                        <p className="font-semibold text-foreground dark:text-dark-foreground">{transaction.description}</p>
-                        <p className="text-xs text-muted-foreground">{categories.find((c:Category) => c.id === transaction.categoryId)?.name || 'N/A'}</p>
-                    </div>
-                </div>
-            </td>
-            <td className="py-3 px-4 text-sm text-muted-foreground hidden sm:table-cell">{formatDate(transaction.date)}</td>
-            <td className={`py-3 px-4 text-sm text-right font-semibold ${isIncome ? 'text-success' : 'text-danger'}`}>
-                {isIncome ? '+' : '-'} {formatCurrency(transaction.amount)}
-            </td>
-        </motion.tr>
-    );
-};
-
-const AnalysisListItem: React.FC<{ item: any, onClick: () => void }> = ({ item, onClick }) => {
-    const total = item.income + item.expense;
-    const incomePercentage = total > 0 ? (item.income / total) * 100 : 0;
-
-    if (item.total === 0) {
-        return (
-            <div
-                onClick={onClick}
-                className="p-3 rounded-md cursor-pointer hover:bg-muted/50 dark:hover:bg-dark-muted/50 transition-colors group"
-            >
-                <div className="flex justify-between items-center text-sm">
-                    <span className="font-semibold text-muted-foreground/70">{item.name}</span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500 italic">Nenhuma atividade</span>
-                </div>
-            </div>
-        );
-    }
-    
-    return (
-        <motion.div 
-            onClick={onClick} 
-            className="p-3 rounded-md cursor-pointer hover:bg-muted/50 dark:hover:bg-dark-muted/50 transition-all group"
-            whileTap={{ scale: 0.98 }}
-        >
-            <div className="flex justify-between items-center text-sm mb-2">
-                <span className="font-semibold text-foreground dark:text-dark-foreground">{item.name}</span>
-                <span className="font-mono font-semibold text-right flex items-center gap-1">
-                  {formatCurrency(item.income - item.expense)}
-                  <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"/>
-                </span>
-            </div>
-            <div className="w-full bg-danger/20 dark:bg-danger/10 rounded-full h-2 overflow-hidden">
-                <div 
-                    className="bg-success h-2 rounded-full" 
-                    style={{ width: `${incomePercentage}%` }}
-                />
-            </div>
-             <div className="flex justify-between items-center text-xs mt-1 text-muted-foreground">
-                <span className="text-success font-medium">+{formatCurrency(item.income)}</span>
-                <span className="text-danger font-medium">-{formatCurrency(item.expense)}</span>
-            </div>
+        <motion.div animate={{ rotate: isOpen ? 180 : 0 }}>
+          <ChevronRight className="h-5 w-5 text-muted-foreground transform rotate-90" />
         </motion.div>
-    );
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.section
+            key="content"
+            initial="collapsed"
+            animate="open"
+            exit="collapsed"
+            variants={{
+              open: { opacity: 1, height: 'auto' },
+              collapsed: { opacity: 0, height: 0 },
+            }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="p-4 pt-0">{children}</div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
 };
 
-const MemberSearchableSelect: React.FC<{
-    members: Member[];
-    selectedMemberId: string;
-    onSelect: (memberId: string) => void;
-}> = ({ members, selectedMemberId, onSelect }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [isOpen, setIsOpen] = useState(false);
-    const wrapperRef = useRef<HTMLDivElement>(null);
 
-    const filteredMembers = useMemo(() => 
-        members.filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase())),
-        [members, searchTerm]
-    );
+// --- Monthly Summary Component ---
+type SummaryItem = { id: string; name: string; income: number; expense: number; total: number; };
+type MonthlySummaryData = {
+    categories: SummaryItem[];
+    projects: SummaryItem[];
+    tags: SummaryItem[];
+};
 
-    const selectedMemberName = members.find(m => m.id === selectedMemberId)?.name || "Selecione...";
-    
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [wrapperRef]);
+const MonthlySummarySection: React.FC<{
+  summary: MonthlySummaryData;
+  setView: (view: ViewState) => void;
+}> = ({ summary, setView }) => {
+  const [activeTab, setActiveTab] = useState<'categories' | 'projects' | 'tags'>('categories');
 
-    return (
-        <div className="relative" ref={wrapperRef}>
-            <button type="button" onClick={() => setIsOpen(!isOpen)} className="w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all flex justify-between items-center text-left">
-                <span className={selectedMemberId ? '' : 'text-muted-foreground'}>{selectedMemberName}</span>
-                <svg className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-            </button>
-            {isOpen && (
-                <div 
-                    className="absolute z-[60] w-full mt-1 bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-lg shadow-lg"
-                >
-                    <div className="p-2">
-                        <div className="relative">
-                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
-                            <input type="text" placeholder="Buscar membro..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} 
-                                className="w-full pl-8 pr-2 py-1.5 bg-background dark:bg-dark-background border-none focus:ring-0 text-sm"
-                            />
+  const tabs = [
+    { key: 'categories' as const, label: 'Categorias', icon: <Layers className="h-4 w-4" />, data: summary.categories },
+    { key: 'projects' as const, label: 'Projetos', icon: <Briefcase className="h-4 w-4" />, data: summary.projects },
+    { key: 'tags' as const, label: 'Tags', icon: <TagIcon className="h-4 w-4" />, data: summary.tags },
+  ];
+
+  const activeData = tabs.find(tab => tab.key === activeTab)?.data || [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-center bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex-1 py-2 px-2 text-sm font-semibold rounded-md transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === tab.key ? 'bg-card dark:bg-dark-card shadow' : ''}`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      
+      <AnimatePresence mode="wait">
+        <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-2"
+        >
+            {activeData.length > 0 ? activeData.map(item => {
+                const total = item.income + item.expense;
+                const incomePercent = total > 0 ? (item.income / total) * 100 : 0;
+                const expensePercent = total > 0 ? (item.expense / total) * 100 : 0;
+                const filterType = activeTab === 'categories' ? 'category' : activeTab === 'projects' ? 'project' : 'tag';
+
+                return (
+                    <div 
+                        key={item.id}
+                        onClick={() => setView({ name: 'financial-detail', filterType, filterId: item.id, filterName: item.name })}
+                        className="bg-background dark:bg-dark-background/60 p-3 rounded-lg cursor-pointer hover:bg-muted dark:hover:bg-dark-muted"
+                    >
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="font-semibold text-sm">{item.name}</span>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground"/>
+                        </div>
+                        <div className="w-full bg-muted dark:bg-dark-muted h-2 rounded-full flex overflow-hidden">
+                           <div className="bg-success" style={{ width: `${incomePercent}%` }}></div>
+                           <div className="bg-danger" style={{ width: `${expensePercent}%` }}></div>
+                        </div>
+                        <div className="flex justify-between items-center mt-2 text-xs">
+                            <span className="text-success font-semibold">+{formatCurrency(item.income)}</span>
+                            <span className="text-danger font-semibold">-{formatCurrency(item.expense)}</span>
                         </div>
                     </div>
-                    <div className="max-h-48 overflow-y-auto custom-scrollbar">
-                        {filteredMembers.map(member => (
-                            <div key={member.id} onClick={() => { onSelect(member.id); setIsOpen(false); }} className="px-4 py-2 text-sm hover:bg-muted dark:hover:bg-dark-muted cursor-pointer">
-                                {member.name}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+                );
+            }) : <p className="text-center text-sm text-muted-foreground py-4">Nenhuma atividade registrada este mês.</p>}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
 };
 
-// --- Main Component ---
+
+// --- Main Financial Page ---
 export const Financial: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { componentState } = viewState as { name: 'financial', componentState?: any };
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<any>({ accounts: [], transactions: [], categories: [], payees: [], tags: [], projects: [], members: [] });
-    const [activeTab, setActiveTab] = useState<'category' | 'project' | 'tag'>(componentState?.activeTab || 'category');
-    const [futureIncomeSummary, setFutureIncomeSummary] = useState({ count: 0, totalAmount: 0 });
-    const isInitialMount = useRef(true);
+    const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+    const [dataForMaps, setDataForMaps] = useState<{ categories: Category[], payees: Payee[], projects: Project[], tags: Tag[] }>({ categories: [], payees: [], projects: [], tags: [] });
+    const isInitialLoad = useRef(true);
+    const [aiSummaryData, setAiSummaryData] = useState<any>(null);
 
     const fetchData = useCallback(async (isUpdate = false) => {
-        if (!isUpdate && isInitialMount.current) {
-            setLoading(true);
-        }
-        const [accs, trxs, cats, pys, tgs, projs, membs, futureSummary] = await Promise.all([
-            getAccountsWithBalance(), 
-            transactionsApi.getAll(), 
-            categoriesApi.getAll(), 
-            payeesApi.getAll(), 
-            tagsApi.getAll(), 
-            projectsApi.getAll(),
-            getMembers(),
-            getFutureIncomeSummary()
-        ]);
-        setData({
-            accounts: accs,
-            transactions: trxs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-            categories: cats,
-            payees: pys,
-            tags: tgs,
-            projects: projs,
-            members: membs
-        });
-        setFutureIncomeSummary(futureSummary);
-        if (isInitialMount.current) {
-            setLoading(false);
-            isInitialMount.current = false;
+        if (!isUpdate && isInitialLoad.current) setLoading(true);
+        try {
+            const [accs, transactions, cats, pys, projs, tgs, bills, stats, collaboratorsResponse] = await Promise.all([
+                getAccountsWithBalance(),
+                transactionsApi.getAll(),
+                categoriesApi.getAll(),
+                payeesApi.getAll(),
+                projectsApi.getAll(),
+                tagsApi.getAll(),
+                payableBillsApi.getAll(),
+                getDashboardStats(),
+                fetch('https://teuco.com.br/colaboradores/partials/resumo.php').catch(e => null)
+            ]);
+            setAccounts(accs);
+            setAllTransactions(transactions);
+            setDataForMaps({ categories: cats, payees: pys, projects: projs, tags: tgs });
+            
+             // --- Prepare data for AI Summary ---
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+            const thisMonthTransactions = transactions.filter(t => {
+                const tDate = new Date(t.date);
+                return tDate >= startOfMonth && tDate <= endOfMonth;
+            });
+            const monthlyIncome = thisMonthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+            const monthlyExpense = thisMonthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+
+            let collaboratorsData = null;
+            if (collaboratorsResponse && collaboratorsResponse.ok) {
+                const data = await collaboratorsResponse.json();
+                const parseCurrency = (value: string | number) => typeof value === 'string' ? parseFloat(value.replace(/\./g, '').replace(',', '.')) : value || 0;
+                collaboratorsData = {
+                    totalArrecadadoMes: parseCurrency(data.total_arrecadado_mes),
+                    projecaoProximoMes: parseCurrency(data.projecao_proximo_mes),
+                };
+            }
+
+            setAiSummaryData({
+                contasBancarias: accs.map(a => ({ nome: a.name, saldo: a.currentBalance })),
+                resumoDoMes: {
+                    receitasDoMes: monthlyIncome,
+                    despesasDoMes: monthlyExpense,
+                },
+                contasAPagar: {
+                    totalVencido: bills.filter(b => b.status === 'overdue').reduce((acc, b) => acc + b.amount, 0),
+                    vencemEsteMes: bills.filter(b => b.status === 'pending' && new Date(b.dueDate).getMonth() === now.getMonth()).reduce((acc, b) => acc + b.amount, 0),
+                },
+                resumoMembros: {
+                    valorTotalPendente: stats.totalOverdueAmount + stats.currentMonthPendingAmount,
+                    percentualInadimplencia: stats.overduePercentage,
+                },
+                resumoColaboradores: collaboratorsData,
+                projecoes: {
+                    receitasProjetadas: stats.nextMonthProjectedRevenue,
+                    despesasProjetadas: stats.projectedExpenses,
+                },
+                dataHoraAtual: new Date().toISOString()
+            });
+
+
+        } catch (error) {
+            console.error("Failed to fetch financial data", error);
+        } finally {
+            if (!isUpdate || isInitialLoad.current) {
+                setLoading(false);
+                isInitialLoad.current = false;
+            }
         }
     }, []);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useEffect(() => {
+        fetchData();
+        const interval = setInterval(() => fetchData(true), 60000);
+        return () => clearInterval(interval);
+    }, [fetchData]);
 
-    const analysisData = useMemo(() => {
+    const totalBalance = useMemo(() => accounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0), [accounts]);
+    const recentTransactions = useMemo(() => allTransactions.sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5), [allTransactions]);
+    const categoryMap = useMemo(() => new Map(dataForMaps.categories.map(c => [c.id, c.name])), [dataForMaps.categories]);
+
+    const monthlySummary = useMemo<MonthlySummaryData>(() => {
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-        const currentMonthTransactions = data.transactions.filter((t: Transaction) => {
+        const thisMonthTransactions = allTransactions.filter(t => {
             const tDate = new Date(t.date);
             return tDate >= startOfMonth && tDate <= endOfMonth;
         });
-        
-        const calculateSummary = (items: any[], type: string) => {
-            return items.map(item => {
-                const filteredTransactions = currentMonthTransactions.filter((t: Transaction) => {
-                    if (type === 'category') return t.categoryId === item.id;
-                    if (type === 'project') return t.projectId === item.id;
-                    if (type === 'tag') return t.tagIds?.includes(item.id);
-                    return false;
+
+        const categorySummary: { [key: string]: Omit<SummaryItem, 'id' | 'name'> } = {};
+        const projectSummary: { [key: string]: Omit<SummaryItem, 'id' | 'name'> } = {};
+        const tagSummary: { [key: string]: Omit<SummaryItem, 'id' | 'name'> } = {};
+
+        thisMonthTransactions.forEach(t => {
+            if (t.categoryId) {
+                if (!categorySummary[t.categoryId]) categorySummary[t.categoryId] = { income: 0, expense: 0, total: 0 };
+                categorySummary[t.categoryId][t.type] += t.amount;
+                categorySummary[t.categoryId].total += t.amount;
+            }
+            if (t.projectId) {
+                if (!projectSummary[t.projectId]) projectSummary[t.projectId] = { income: 0, expense: 0, total: 0 };
+                projectSummary[t.projectId][t.type] += t.amount;
+                projectSummary[t.projectId].total += t.amount;
+            }
+            if (t.tagIds) {
+                t.tagIds.forEach(tagId => {
+                    if (!tagSummary[tagId]) tagSummary[tagId] = { income: 0, expense: 0, total: 0 };
+                    tagSummary[tagId][t.type] += t.amount;
+                    tagSummary[tagId].total += t.amount;
                 });
-                const income = filteredTransactions.filter((t: Transaction) => t.type === 'income').reduce((sum: number, t: Transaction) => sum + t.amount, 0);
-                const expense = filteredTransactions.filter((t: Transaction) => t.type === 'expense').reduce((sum: number, t: Transaction) => sum + t.amount, 0);
-                return { ...item, income, expense, total: income + expense };
-            }).sort((a, b) => {
-                const aHasActivity = a.total > 0;
-                const bHasActivity = b.total > 0;
-                if (aHasActivity && !bHasActivity) return -1;
-                if (!aHasActivity && bHasActivity) return 1;
-                return b.total - a.total;
-            });
-        };
+            }
+        });
+        
+        const mapAndSort = (summaryObj: any, map: Map<string, string>) => Object.entries(summaryObj)
+            .map(([id, data]) => ({ id, name: map.get(id) || 'Desconhecido', ...(data as any) }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 10);
+
         return {
-            category: calculateSummary(data.categories, 'category'),
-            project: calculateSummary(data.projects, 'project'),
-            tag: calculateSummary(data.tags, 'tag'),
+            categories: mapAndSort(categorySummary, categoryMap),
+            projects: mapAndSort(projectSummary, new Map(dataForMaps.projects.map(p => [p.id, p.name]))),
+            tags: mapAndSort(tagSummary, new Map(dataForMaps.tags.map(t => [t.id, t.name]))),
         };
-    }, [data]);
+    }, [allTransactions, dataForMaps, categoryMap]);
     
-    if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+    const currentView: ViewState = { name: 'financial' };
 
-    const summaryContent = analysisData[activeTab];
+    const financialHealthPrompt = `
+    Você é o "ChatGPTeuco", um assistente financeiro sênior para a tesouraria do TEUCO. Sua missão é fornecer uma visão panorâmica e estratégica ("bird's eye view") da saúde financeira da organização com base nos dados consolidados fornecidos em JSON.
 
-    const currentView: ViewState = { name: 'financial', componentState: { activeTab } };
+    **Analise os seguintes pontos-chave:**
+
+    1.  **Liquidez e Saldo (dados de \`contasBancarias\`):**
+        *   Qual é o saldo total somando todas as contas?
+        *   Existe alguma conta com saldo negativo ou perigosamente baixo?
+
+    2.  **Fluxo de Caixa do Mês (\`resumoDoMes\`):**
+        *   Compare as receitas e despesas do mês atual. O resultado é positivo ou negativo?
+
+    3.  **Contas a Pagar (\`contasAPagar\`):**
+        *   Qual é o valor total de contas já vencidas? Isso é um ponto de atenção?
+        *   Qual é o valor total de contas que ainda vencem neste mês? Estamos preparados para cobrir esses custos com o saldo atual?
+
+    4.  **Saúde das Mensalidades (\`resumoMembros\`):**
+        *   Qual é o valor total pendente de mensalidades?
+        *   Qual a porcentagem de membros com pendências? Isso representa um risco para a arrecadação?
+
+    5.  **Receitas de Colaboradores (\`resumoColaboradores\`):**
+        *   Como está a arrecadação de colaboradores este mês em comparação com a projeção para o próximo?
+
+    6.  **Projeções Futuras (\`projecoes\`):**
+        *   Compare o total de receitas projetadas com as despesas projetadas. A previsão é de superávit ou déficit?
+
+    **Sua Resposta:**
+
+    Estruture sua resposta em duas partes, usando um tom profissional, mas encorajador:
+
+    *   **Diagnóstico Financeiro:** Um parágrafo conciso resumindo a situação atual. Comece com uma frase de impacto (ex: "A saúde financeira deste mês apresenta um cenário de atenção..." ou "Temos um panorama financeiro estável este mês..."). Destaque os pontos mais críticos (positivos e negativos) da sua análise.
+    *   **Recomendações Estratégicas:** Uma lista curta (2 a 3 itens) com ações práticas e diretas. As recomendações devem ser baseadas nos problemas identificados.
+        *   Se houver muitas contas vencidas: "Priorizar a quitação dos R$ X em contas vencidas para evitar juros."
+        *   Se a inadimplência estiver alta: "Iniciar uma comunicação amigável com os X membros com mensalidades em aberto para entender a situação."
+        *   Se as despesas estiverem superando as receitas: "Revisar os gastos nas categorias que mais impactaram o mês."
+
+    **Formato:** Use **negrito** para valores e números importantes. Mantenha a linguagem clara e direta. Encerre com "Axé 🙏".
+    `;
+
+    if (loading) {
+        return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+    }
 
     return (
         <div className="space-y-6">
-            <h2 className="hidden sm:block text-2xl md:text-3xl font-bold font-display text-foreground dark:text-dark-foreground">Financeiro</h2>
+            <div className="flex items-center justify-center sm:justify-between gap-4">
+                <div className="hidden sm:flex items-center gap-3">
+                    <div className="p-2 bg-primary/10 rounded-lg"><DollarSign className="h-6 w-6 text-primary"/></div>
+                    <h2 className="text-xl sm:text-2xl font-bold font-display text-foreground dark:text-dark-foreground">Financeiro</h2>
+                </div>
+                 <motion.button onClick={() => setView({ name: 'transaction-form', returnView: currentView })} className="bg-primary text-primary-foreground font-semibold py-2.5 px-5 rounded-full flex items-center gap-2 active:scale-95 transition-transform shadow-btn dark:shadow-dark-btn flex-shrink-0" whileTap={{scale:0.98}}>
+                    <PlusCircle className="h-5 w-5"/>
+                    <span>Nova Transação</span>
+                </motion.button>
+            </div>
             
-            <motion.button onClick={() => setView({ name: 'transaction-form', returnView: currentView })} className="sm:hidden w-full text-center bg-primary text-primary-foreground font-semibold py-2.5 px-4 rounded-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-btn dark:shadow-dark-btn" whileTap={{scale:0.98}}>
-                <PlusCircle className="h-5 w-5"/> Nova Transação
-            </motion.button>
+            <motion.div variants={itemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border text-center">
+                <p className="text-sm font-medium text-muted-foreground">SALDO TOTAL</p>
+                <p className={`text-3xl font-bold font-display ${totalBalance < 0 ? 'text-danger' : 'text-foreground dark:text-dark-foreground'}`}>{formatCurrency(totalBalance)}</p>
+            </motion.div>
             
-            <motion.div className="flex flex-col lg:flex-row gap-8" variants={{ visible: { transition: { staggerChildren: 0.07 } } }} initial="hidden" animate="visible">
-                <motion.div className="w-full lg:w-2/5 xl:w-1/3 space-y-6 flex flex-col" variants={{hidden:{opacity:0, y:20}, visible:{opacity:1, y:0}}}>
-                    <div className="lg:order-1">
-                        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground mb-4">Saldos</h3>
-                        <motion.div className="space-y-3" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
-                            {data.accounts.map((acc: Account) => (<AccountBalanceCard key={acc.id} account={acc} onClick={() => setView({ name: 'transaction-history', accountId: acc.id })}/>))}
-                             {futureIncomeSummary.count > 0 && (
-                                <motion.div 
-                                    onClick={() => setView({ name: 'future-income-view', returnView: currentView })}
-                                    className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border flex items-center gap-4 cursor-pointer group"
-                                    whileHover={{ y: -3, boxShadow: '0 4px 15px -2px rgba(0,0,0,0.05)' }}
-                                    transition={{ type: 'spring', stiffness: 200 }}
-                                >
-                                    <div className="p-3 bg-blue-500/10 rounded-full">
-                                        <TrendingUp className="w-6 h-6 text-blue-500" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-sm font-medium text-muted-foreground group-hover:text-blue-500 transition-colors">Previsão de Receitas</h3>
-                                        <p className="text-xl font-bold font-display text-foreground dark:text-dark-foreground">{formatCurrency(futureIncomeSummary.totalAmount)}</p>
-                                        <p className="text-xs text-muted-foreground">{futureIncomeSummary.count} {futureIncomeSummary.count === 1 ? 'transação futura' : 'transações futuras'}</p>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </motion.div>
-                    </div>
-                    
-                    <div className="lg:order-2">
-                        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground mb-4">Análise do Mês Atual</h3>
-                        <div className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border">
-                            <div className="p-2 border-b-2 border-border dark:border-dark-border flex justify-around">
-                                <TabButton label="Categorias" isActive={activeTab === 'category'} onClick={() => setActiveTab('category')} />
-                                <TabButton label="Projetos" isActive={activeTab === 'project'} onClick={() => setActiveTab('project')} />
-                                <TabButton label="Tags" isActive={activeTab === 'tag'} onClick={() => setActiveTab('tag')} />
-                            </div>
-                            <div>
-                                <div className="p-2 h-[280px] overflow-y-auto custom-scrollbar">
-                                    {summaryContent.length > 0 ? (
-                                        <motion.div className="space-y-1" variants={{ visible: { transition: { staggerChildren: 0.05 } } }} initial="hidden" animate="visible">
-                                            {summaryContent.map((item: any) => (
-                                                <AnalysisListItem key={item.id} item={item} onClick={() => setView({name: 'financial-detail', filterType: activeTab, filterId: item.id, filterName: item.name})} />
-                                            ))}
-                                        </motion.div>
-                                    ) : (
-                                        <div className="flex items-center justify-center h-full">
-                                            <p className="text-center text-sm text-muted-foreground py-4">Nenhum dado para exibir.</p>
-                                        </div>
-                                    )}
-                                </div>
+            <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
+                <ExpandableCard title="Contas" icon={<Wallet className="h-5 w-5" />} defaultOpen={true}>
+                    <div className="space-y-2">
+                    {accounts.map(acc => (
+                        <div key={acc.id} onClick={() => setView({ name: 'transaction-history', accountId: acc.id })} className="bg-background dark:bg-dark-background/60 p-3 rounded-lg flex justify-between items-center cursor-pointer hover:bg-muted dark:hover:bg-dark-muted">
+                            <p className="font-semibold text-sm">{acc.name}</p>
+                            <div className="flex items-center gap-2">
+                                <p className={`font-semibold font-mono text-sm ${acc.currentBalance! < 0 ? 'text-danger' : ''}`}>{formatCurrency(acc.currentBalance!)}</p>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground"/>
                             </div>
                         </div>
+                    ))}
                     </div>
-                </motion.div>
+                </ExpandableCard>
 
-                <motion.div className="w-full lg:w-3/5 xl:w-2/3 flex flex-col gap-6" variants={{hidden:{opacity:0, y:20}, visible:{opacity:1, y:0}}}>
-                    <div className="hidden sm:flex flex-col gap-3">
-                        <motion.button onClick={() => setView({ name: 'transaction-form', returnView: currentView })} className="w-full text-center bg-primary text-primary-foreground font-semibold py-2.5 px-4 rounded-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-btn dark:shadow-dark-btn" whileTap={{scale:0.98}}><PlusCircle className="h-5 w-5"/> Nova Transação</motion.button>
-                        <div className="grid grid-cols-2 gap-3">
-                             <motion.button onClick={() => setView({ name: 'batch-transaction-form', returnView: currentView })} className="w-full text-center bg-card dark:bg-dark-card text-foreground dark:text-dark-foreground font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border border-border dark:border-dark-border hover:bg-muted dark:hover:bg-dark-muted" whileTap={{scale:0.98}}><Layers className="h-4 w-4" /> Lote</motion.button>
-                             <motion.button onClick={() => setView({ name: 'ofx-import-form', returnView: currentView })} className="w-full text-center bg-card dark:bg-dark-card text-foreground dark:text-dark-foreground font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border border-border dark:border-dark-border hover:bg-muted dark:hover:bg-dark-muted" whileTap={{scale:0.98}}><UploadCloud className="h-4 w-4" /> OFX</motion.button>
+                {aiSummaryData && (
+                    <motion.div variants={itemVariants}>
+                        <AISummary
+                            data={aiSummaryData}
+                            prompt={financialHealthPrompt}
+                        />
+                    </motion.div>
+                )}
+
+                 <ExpandableCard title="Resumo do Mês" icon={<PieChart className="h-5 w-5" />} defaultOpen={true}>
+                    <MonthlySummarySection summary={monthlySummary} setView={setView} />
+                </ExpandableCard>
+            
+                 <ExpandableCard title="Transações Recentes" icon={<History className="h-5 w-5" />} defaultOpen={true}>
+                     <div className="space-y-2">
+                     {recentTransactions.map(t => (
+                        <div key={t.id} onClick={() => setView({ name: 'transaction-form', transactionId: t.id, returnView: currentView })} className="bg-background dark:bg-dark-background/60 p-3 rounded-lg flex justify-between items-center cursor-pointer hover:bg-muted dark:hover:bg-dark-muted">
+                            <div>
+                                <p className="font-semibold text-sm">{t.description}</p>
+                                <p className="text-xs text-muted-foreground">{categoryMap.get(t.categoryId) || 'N/A'}</p>
+                            </div>
+                            <p className={`font-semibold text-sm ${t.type === 'income' ? 'text-success' : 'text-danger'}`}>{formatCurrency(t.amount)}</p>
                         </div>
-                        <motion.button onClick={() => setView({ name: 'financial-report-form', returnView: currentView })} className="w-full text-center bg-card dark:bg-dark-card text-primary font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border-2 border-primary/50 hover:border-primary hover:bg-primary/5" whileTap={{scale:0.98}}><FileSearch className="h-4 w-4" /> Relatórios</motion.button>
+                     ))}
+                     </div>
+                     <button onClick={() => setView({ name: 'transaction-history', accountId: 'all' })} className="w-full text-center text-primary font-semibold py-2 text-sm mt-2">Ver todas</button>
+                </ExpandableCard>
+
+                <ExpandableCard title="Ações Rápidas" icon={<Users className="h-5 w-5" />} defaultOpen={true}>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <ActionButton icon={<Filter className="h-5 w-5"/>} label="Relatório" onClick={() => setView({ name: 'financial-report-form', returnView: currentView })} />
+                        <ActionButton icon={<TrendingUp className="h-5 w-5"/>} label="Rendas Futuras" onClick={() => setView({ name: 'future-income-view', returnView: currentView })} />
+                        <ActionButton icon={<Briefcase className="h-5 w-5"/>} label="Lote Manual" onClick={() => setView({ name: 'batch-transaction-form', returnView: currentView })} />
+                        <ActionButton icon={<Briefcase className="h-5 w-5"/>} label="Importar OFX" onClick={() => setView({ name: 'ofx-import-form', returnView: currentView })}/>
                     </div>
-                    
-                    <div>
-                        <h3 className="text-xl font-bold font-display text-foreground dark:text-dark-foreground mb-4">Últimas Transações</h3>
-                        <div className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border overflow-hidden min-h-[450px] flex flex-col">
-                            {data.transactions.length > 0 ? (
-                                <>
-                                <table className="w-full">
-                                    <motion.tbody>
-                                        <AnimatePresence>
-                                            {data.transactions.slice(0, 10).map((t: Transaction) => <TransactionRow key={t.id} transaction={t} data={data} onClick={() => setView({ name: 'transaction-form', transactionId: t.id, returnView: currentView })} onViewAttachment={(url) => setView({ name: 'attachment-view', attachmentUrl: url, returnView: currentView })}/>)}
-                                        </AnimatePresence>
-                                    </motion.tbody>
-                                </table>
-                                <div className="p-4 mt-auto">
-                                    <button 
-                                      onClick={() => setView({ name: 'transaction-history', accountId: 'all' })}
-                                      className="w-full text-center text-primary font-semibold py-2.5 px-4 rounded-md transition-colors bg-primary/10 hover:bg-primary/20 text-sm"
-                                    >
-                                        Ver Histórico Completo
-                                    </button>
-                                </div>
-                                </>
-                            ) : (
-                                <div className="flex-grow flex items-center justify-center">
-                                    <p className="text-center text-muted-foreground">Nenhuma transação registrada.</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    
-                    <div className="sm:hidden grid grid-cols-2 gap-3">
-                         <motion.button onClick={() => setView({ name: 'batch-transaction-form', returnView: currentView })} className="w-full text-center bg-card dark:bg-dark-card text-foreground dark:text-dark-foreground font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border border-border dark:border-dark-border" whileTap={{scale:0.98}}><Layers className="h-4 w-4" /> Lote</motion.button>
-                         <motion.button onClick={() => setView({ name: 'ofx-import-form', returnView: currentView })} className="w-full text-center bg-card dark:bg-dark-card text-foreground dark:text-dark-foreground font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border border-border dark:border-dark-border" whileTap={{scale:0.98}}><UploadCloud className="h-4 w-4" /> OFX</motion.button>
-                    </div>
-                    <motion.button onClick={() => setView({ name: 'financial-report-form', returnView: currentView })} className="sm:hidden w-full text-center bg-card dark:bg-dark-card text-primary font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 border-2 border-primary/50 hover:border-primary hover:bg-primary/5" whileTap={{scale:0.98}}><FileSearch className="h-4 w-4" /> Relatórios</motion.button>
-                </motion.div>
+                </ExpandableCard>
             </motion.div>
         </div>
     );
 };
 
-export const TransactionFormPage: React.FC<{
-    viewState: ViewState;
-    setView: (view: ViewState) => void;
-}> = ({ viewState, setView }) => {
+const ActionButton: React.FC<{ icon: React.ReactNode, label: string, onClick: () => void }> = ({ icon, label, onClick }) => (
+    <button onClick={onClick} className="bg-background dark:bg-dark-background/60 p-4 rounded-lg flex flex-col items-center justify-center text-center gap-2 hover:bg-muted dark:hover:bg-dark-muted transition-colors">
+        <div className="text-primary">{icon}</div>
+        <span className="text-xs font-semibold">{label}</span>
+    </button>
+);
+
+export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
     const { transactionId, returnView = { name: 'financial' } } = viewState as { name: 'transaction-form', transactionId?: string, returnView?: ViewState };
     const isEdit = !!transactionId;
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [data, setData] = useState<any>({ categories: [], payees: [], tags: [], projects: [], accounts: [], members: [], allPayableBills: [] });
-    const [transaction, setTransaction] = useState<Transaction | undefined>(undefined);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const toast = useToast();
-    
-    const [formState, setFormState] = useState<{
-        type: 'income' | 'expense';
-        description: string;
-        amount: number;
-        date: string;
-        accountId: string;
-        categoryId: string;
-        payeeId: string;
-        tagIds: string[];
-        projectId: string;
-        comments: string;
-        payableBillId: string | undefined;
-        attachmentUrl: string | undefined;
-        attachmentFilename: string | undefined;
-    }>({
-        type: 'expense', description: '', amount: 0, date: new Date().toISOString().slice(0, 10),
-        accountId: '', categoryId: '', payeeId: '', tagIds: [] as string[], projectId: '',
-        comments: '', payableBillId: undefined, attachmentUrl: undefined, attachmentFilename: undefined,
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const [formState, setFormState] = useState({
+        description: '', amount: 0, date: new Date().toISOString().slice(0, 10), type: 'expense' as 'income' | 'expense',
+        accountId: '', categoryId: '', payeeId: '', tagIds: [] as string[], projectId: '', comments: '',
+        attachmentUrl: '', attachmentFilename: ''
     });
     const [amountStr, setAmountStr] = useState('R$ 0,00');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    
-    // State for linking/editing membership payment
-    const [paymentLink, setPaymentLink] = useState<{ memberId: string; referenceMonth: string; } | null>(null);
-    const [showPaymentLinkUI, setShowPaymentLinkUI] = useState(false);
-    
-    // State for linking to a bill
-    const [availableBills, setAvailableBills] = useState<PayableBill[]>([]);
-    const [selectedBillId, setSelectedBillId] = useState('');
+
+    const [isPayment, setIsPayment] = useState(false);
+    const [paymentLink, setPaymentLink] = useState({ memberId: '', referenceMonth: '' });
+    const [allMembers, setAllMembers] = useState<Member[]>([]);
+
+    const [data, setData] = useState<{ accounts: Account[], categories: Category[], payees: Payee[], tags: Tag[], projects: Project[] }>({
+        accounts: [], categories: [], payees: [], tags: [], projects: []
+    });
+
+    const formatCurrencyForInput = (value: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    const parseCurrencyFromInput = (formattedValue: string): number => {
+        const numericString = formattedValue.replace(/[R$\s.]/g, '').replace(',', '.');
+        return parseFloat(numericString) || 0;
+    };
 
     useEffect(() => {
-        let isCancelled = false;
-    
-        const loadAllData = async () => {
-            try {
-                const [cats, pys, tgs, projs, accs, membs, allTransactions, billsForLinking, allPayableBills] = await Promise.all([
-                    categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), accountsApi.getAll(), getMembers(), transactionsApi.getAll(), getPayableBillsForLinking(), payableBillsApi.getAll()
-                ]);
-    
-                if (isCancelled) return;
-    
-                setAvailableBills(billsForLinking);
-                setData({ categories: cats, payees: pys, tags: tgs, projects: projs, accounts: accs, members: membs, allPayableBills: allPayableBills });
-
-                if (isEdit && transactionId) {
-                    const trx = allTransactions.find(t => t.id === transactionId);
-                    if (!trx) { throw new Error("Transação não encontrada."); }
+        const loadData = async () => {
+            setLoading(true);
+            const [accs, cats, pys, tgs, projs, members] = await Promise.all([
+                accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), getMembers()
+            ]);
+            setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs });
+            setAllMembers(members.filter(m => m.activityStatus === 'Ativo'));
+            
+            if (isEdit && transactionId) {
+                const transactions = await transactionsApi.getAll();
+                const trx = transactions.find(t => t.id === transactionId);
+                if (trx) {
+                    setFormState({
+                        description: trx.description, amount: trx.amount, date: trx.date.slice(0, 10), type: trx.type,
+                        accountId: trx.accountId, categoryId: trx.categoryId, payeeId: trx.payeeId || '', tagIds: trx.tagIds || [],
+                        projectId: trx.projectId || '', comments: trx.comments || '',
+                        attachmentUrl: trx.attachmentUrl || '', attachmentFilename: trx.attachmentFilename || ''
+                    });
+                    setAmountStr(formatCurrencyForInput(trx.amount));
                     
-                    const linkedBill = allPayableBills.find(b => b.transactionId === transactionId);
-                    if (linkedBill) { trx.payableBillId = linkedBill.id; setSelectedBillId(linkedBill.id); }
-                    
-                    setTransaction(trx);
-                    if (trx.payableBillId) setSelectedBillId(trx.payableBillId);
-
-
-                    if (trx.type === 'income') {
-                        const payment = await getPaymentByTransactionId(trx.id);
-                        if (isCancelled) return;
-                        if (payment) {
-                            setPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
-                            setShowPaymentLinkUI(true);
-                        }
+                    const payment = await getPaymentByTransactionId(trx.id);
+                    if (payment) {
+                        setIsPayment(true);
+                        setPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
                     }
                 }
-            } catch (err: any) {
-                if (isCancelled) return;
-                console.error("Falha ao carregar dados da transação:", err);
-                toast.error("Não foi possível carregar os dados.");
-                setError(err.message || "Erro desconhecido ao carregar dados.");
-            } finally {
-                if (!isCancelled) { setLoading(false); }
+            } else if (accs.length > 0) {
+                setFormState(s => ({ ...s, accountId: accs[0].id }));
             }
+            setLoading(false);
         };
-        
-        loadAllData();
-        return () => { isCancelled = true; };
-    }, [transactionId, isEdit, toast]);
-
-    useEffect(() => {
-        if (transaction) {
-            setFormState({
-                type: transaction.type, description: transaction.description, amount: transaction.amount,
-                date: transaction.date.slice(0, 10), accountId: transaction.accountId, categoryId: transaction.categoryId,
-                payeeId: transaction.payeeId || '', tagIds: transaction.tagIds || [], projectId: transaction.projectId || '',
-                comments: transaction.comments || '', payableBillId: transaction.payableBillId,
-                attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename,
-            });
-            setAmountStr(formatCurrencyForInput(transaction.amount));
-        }
-    }, [transaction]);
+        loadData();
+    }, [isEdit, transactionId]);
 
     const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
@@ -490,7 +496,7 @@ export const TransactionFormPage: React.FC<{
         setFormState(prev => ({ ...prev, amount: numericValue }));
         setAmountStr(formatCurrencyForInput(numericValue));
     };
-    
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -499,39 +505,21 @@ export const TransactionFormPage: React.FC<{
     };
 
     const handlePasteAttachment = async () => {
-        if (!navigator.clipboard?.read) {
-            toast.error('Seu navegador não suporta esta funcionalidade.');
-            return;
-        }
         try {
-            const clipboardItems = await navigator.clipboard.read();
-            let found = false;
-            for (const item of clipboardItems) {
-                const supportedType = item.types.find(type => type.startsWith('image/') || type === 'application/pdf');
-
-                if (supportedType) {
-                    const blob = await item.getType(supportedType);
-                    let fileExtension = supportedType.split('/')[1];
-                    if (fileExtension === 'jpeg') fileExtension = 'jpg';
-                    
-                    const fileName = `colado-${Date.now()}.${fileExtension}`;
-                    const file = new File([blob], fileName, { type: supportedType });
-                    
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                const imageType = item.types.find(type => type.startsWith('image/'));
+                if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const file = new File([blob], `colado-${Date.now()}.${imageType.split('/')[1]}`, { type: imageType });
                     setFormState(prev => ({ ...prev, attachmentUrl: URL.createObjectURL(file), attachmentFilename: file.name }));
                     toast.success('Anexo colado com sucesso!');
-                    found = true;
-                    break;
+                    return;
                 }
             }
-            if (!found) {
-                toast.info('Nenhuma imagem ou PDF encontrado na área de transferência.');
-            }
-        } catch (err: any) {
-            if (err.name === 'NotAllowedError') {
-                 toast.error('A permissão para ler a área de transferência foi negada.');
-            } else {
-                toast.error('Falha ao colar. A função pode exigir uma conexão segura (HTTPS).');
-            }
+            toast.info('Nenhuma imagem encontrada na área de transferência.');
+        } catch (err) {
+            toast.error('Falha ao colar da área de transferência.');
         }
     };
 
@@ -539,440 +527,189 @@ export const TransactionFormPage: React.FC<{
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            let warningMessage: string | undefined;
-            let finalTransactionId = transactionId;
-            const dataToSave = { ...formState, date: new Date(formState.date + 'T12:00:00Z').toISOString() };
-            
-            if (isEdit && transaction) {
-                 if (paymentLink) {
-                    const { warning } = await updateTransactionAndPaymentLink(transaction.id, dataToSave, paymentLink);
-                    warningMessage = warning;
+            const payload = { ...formState, date: new Date(formState.date + 'T12:00:00Z').toISOString() };
+            if (isEdit && transactionId) {
+                if (isPayment) {
+                    await updateTransactionAndPaymentLink(transactionId, payload, paymentLink);
                 } else {
-                    const { data, warning } = await transactionsApi.update(transaction.id, dataToSave);
-                    warningMessage = warning;
+                    await transactionsApi.update(transactionId, payload);
                 }
+                toast.success('Transação atualizada com sucesso!');
             } else {
-                 if (formState.type === 'income' && showPaymentLinkUI && paymentLink) {
-                    const { warning } = await addIncomeTransactionAndPayment(
-                        dataToSave,
-                        { ...paymentLink, attachmentUrl: formState.attachmentUrl, attachmentFilename: formState.attachmentFilename }
-                    );
-                    warningMessage = warning;
-                } else {
-                    const { data, warning } = await transactionsApi.add(dataToSave);
-                    finalTransactionId = data.id;
-                    warningMessage = warning;
-                }
-            }
-
-            if (selectedBillId && finalTransactionId && selectedBillId !== transaction?.payableBillId) {
-                await linkExpenseToBill(selectedBillId, finalTransactionId);
-            }
-
-            const action = isEdit ? 'atualizada' : 'adicionada';
-            if (warningMessage) {
-                toast.success(`Transação ${action}, mas o anexo falhou.`);
-                toast.info(warningMessage);
-            } else {
-                toast.success(`Transação ${action} com sucesso!`);
+                await transactionsApi.add(payload as any);
+                toast.success('Transação adicionada com sucesso!');
             }
             setView(returnView);
-
         } catch (error: any) {
-            console.error("Failed to save transaction:", error);
-            toast.error(`Falha ao salvar transação: ${error.message}`);
+            toast.error(`Falha ao salvar: ${error.message}`);
         } finally {
             setIsSubmitting(false);
         }
     };
-    
-    const handleDelete = async () => {
-        if (!transaction) return;
-        setIsSubmitting(true);
-        try {
-            if (paymentLink) {
-                const payment = await getPaymentByTransactionId(transaction.id);
-                if (payment) {
-                    await deletePayment(payment.id);
-                    toast.success("Pagamento e transação associada excluídos.");
-                } else {
-                    await transactionsApi.remove(transaction.id);
-                    // FIX: Replaced non-existent `toast.warning` with `toast.info` as the `warning` type is not defined in the toast context.
-                    toast.info("Transação excluída, mas o vínculo de pagamento não foi encontrado para remoção.");
-                }
-            } else {
-                await transactionsApi.remove(transaction.id);
-                toast.success("Transação excluída com sucesso.");
-            }
-            setView(returnView);
-        } catch (error: any) {
-            toast.error(`Erro ao excluir: ${error.message}`);
-            setIsSubmitting(false);
-            setIsDeleteModalOpen(false);
-        }
-    };
-
-    const DeleteConfirmationModal: React.FC = () => (
-        <AnimatePresence>
-            {isDeleteModalOpen && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                    onClick={() => setIsDeleteModalOpen(false)}
-                >
-                    <motion.div
-                        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                        animate={{ scale: 1, opacity: 1, y: 0 }}
-                        exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                        className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="text-center">
-                             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-                                <Trash className="h-6 w-6 text-destructive" aria-hidden="true" />
-                            </div>
-                            <h3 className="mt-4 text-xl font-bold font-display text-foreground dark:text-dark-foreground">Excluir Transação?</h3>
-                            <div className="mt-2 text-sm text-muted-foreground space-y-3">
-                                <p>Esta ação não pode ser desfeita.</p>
-                                {paymentLink && <p className="p-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-md">Isso também removerá o registro de pagamento da mensalidade associada.</p>}
-                                {transaction?.payableBillId && <p className="p-2 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 rounded-md">A conta a pagar vinculada voltará ao status de pendente.</p>}
-                            </div>
-                        </div>
-                        <div className="mt-6 flex justify-center gap-4">
-                            <button
-                                type="button"
-                                className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted"
-                                onClick={() => setIsDeleteModalOpen(false)}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                type="button"
-                                className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                                onClick={handleDelete}
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting ? 'Excluindo...' : 'Sim, Excluir'}
-                            </button>
-                        </div>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
 
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
-    if (error) {
-        return (
-            <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-center py-20 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border max-w-lg mx-auto"
-            >
-                <p className="text-lg font-bold text-danger mb-2">Erro ao Carregar</p>
-                <p className="text-muted-foreground mb-6">{error}</p>
-                <button 
-                    onClick={() => setView(returnView)} 
-                    className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-md hover:opacity-90"
-                >
-                    Voltar
-                </button>
-            </motion.div>
-        );
-    }
-
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-    const filteredCategories = data.categories.filter((c: Category) => c.type === formState.type || c.type === 'both');
-    const linkedBill = transaction?.payableBillId ? data.allPayableBills.find((b: PayableBill) => b.id === transaction.payableBillId) : null;
-    const memberForLink = paymentLink ? data.members.find((m: Member) => m.id === paymentLink.memberId) : null;
+    const filteredCategories = data.categories.filter(c => c.type === formState.type || c.type === 'both');
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
             <PageHeader title={isEdit ? "Editar Transação" : "Nova Transação"} onBack={() => setView(returnView)} />
-
-            {isEdit && (paymentLink || linkedBill) && (
-                <motion.div 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 bg-secondary dark:bg-dark-secondary rounded-lg text-sm text-secondary-foreground dark:text-dark-secondary-foreground"
-                >
-                    {paymentLink && memberForLink && (
-                        <p>
-                            Vinculado à mensalidade de{' '}
-                            <button type="button" onClick={() => setView({ name: 'member-profile', id: paymentLink!.memberId })} className="font-bold underline hover:text-primary transition-colors">
-                                {memberForLink.name}
-                            </button>
-                            .
-                        </p>
-                    )}
-                    {linkedBill && (
-                        <p>
-                            Vinculado à conta a pagar:{' '}
-                            <button type="button" onClick={() => setView({ name: 'accounts-payable' })} className="font-bold underline hover:text-primary transition-colors">
-                                {linkedBill.description}
-                            </button>
-                            .
-                        </p>
-                    )}
-                </motion.div>
-            )}
-
-             <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                 <div className="flex bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
-                    <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'expense' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'expense' ? 'bg-destructive text-destructive-foreground shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Despesa</button>
-                    <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'income' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'income' ? 'bg-success text-white shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Receita</button>
+                    <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'expense', categoryId: '' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'expense' ? 'bg-card dark:bg-dark-card shadow' : ''}`}>Despesa</button>
+                    <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'income', categoryId: '' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'income' ? 'bg-card dark:bg-dark-card shadow' : ''}`}>Receita</button>
                 </div>
-                <div><label className={labelClass}>Descrição</label><input type="text" value={formState.description} onChange={e => setFormState(f => ({ ...f, description: e.target.value }))} required className={inputClass} /></div>
+
+                <div><label className={labelClass}>Descrição</label><input type="text" value={formState.description} onChange={e => setFormState(f => ({...f, description: e.target.value}))} required className={inputClass}/></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass} /></div>
-                    <DateField id="date" label="Data" value={formState.date} onChange={date => setFormState(f => ({ ...f, date: date }))} required />
+                    <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass}/></div>
+                    <DateField id="date" label="Data" value={formState.date} onChange={date => setFormState(f => ({ ...f, date }))} required />
                 </div>
-
-                {formState.type === 'expense' && (
-                    <div className="space-y-2 pt-2 border-t border-border/50 dark:border-dark-border/50 mt-2">
-                        <label className={labelClass}>Vincular a uma conta</label>
-                        <select value={selectedBillId} onChange={e => setSelectedBillId(e.target.value)} className={inputClass} disabled={!!transaction?.payableBillId}>
-                            <option value="">Nenhuma...</option>
-                            {availableBills.map(b => <option key={b.id} value={b.id}>{b.description} - {formatCurrency(b.amount)}</option>)}
-                        </select>
-                        {linkedBill && (
-                             <div className="text-xs text-muted-foreground mt-1 p-2 bg-muted dark:bg-dark-muted rounded-md">
-                                 Vinculado à conta: <span className="font-semibold">{linkedBill.description}</span>. As alterações serão sincronizadas.
-                            </div>
-                        )}
-                    </div>
-                )}
-                
-                {formState.type === 'income' && (
-                    <div className="space-y-2 pt-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={showPaymentLinkUI} onChange={e => {
-                                setShowPaymentLinkUI(e.target.checked);
-                                if(e.target.checked && !paymentLink) {
-                                    setPaymentLink({ memberId: '', referenceMonth: new Date().toISOString().slice(0, 7) });
-                                }
-                            }} className="h-4 w-4 rounded border-border dark:border-dark-border text-primary focus:ring-primary" />
-                            <span className="text-sm font-medium">{isEdit ? 'Editar vínculo com mensalidade' : 'Esta transação é uma mensalidade'}</span>
-                        </label>
-                        {showPaymentLinkUI && paymentLink && (
-                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border/50 dark:border-dark-border/50 mt-2">
-                                <div><label className={labelClass}>Membro</label><MemberSearchableSelect members={data.members} selectedMemberId={paymentLink.memberId} onSelect={(id) => setPaymentLink(f=> f ? ({...f, memberId: id}) : null)} /></div>
-                                <div><label className={labelClass}>Mês de Referência</label><input type="month" value={paymentLink.referenceMonth} onChange={e => setPaymentLink(f => f ? ({ ...f, referenceMonth: e.target.value }) : null)} className={inputClass} /></div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Conta</label><select value={formState.accountId} onChange={e => setFormState(f => ({ ...f, accountId: e.target.value }))} required className={inputClass}><option value="">Selecione...</option>{data.accounts.map((a: Account) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} disabled={!!selectedBillId} onChange={e => setFormState(f => ({ ...f, categoryId: e.target.value }))} required className={inputClass}><option value="">Selecione...</option>{filteredCategories.map((c: Category) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div><label className={labelClass}>Conta</label><select value={formState.accountId} onChange={e => setFormState(f => ({...f, accountId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{data.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} onChange={e => setFormState(f => ({...f, categoryId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                 </div>
-
                 <div>
-                    <label className={labelClass}>{formState.type === 'income' ? 'Pagador' : 'Beneficiário'}</label>
-                    <select value={formState.payeeId} onChange={e => setFormState(f => ({ ...f, payeeId: e.target.value }))} className={inputClass}>
-                        <option value="">Nenhum / Não se aplica</option>
-                        {data.payees.map((p: Payee) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    <label className={labelClass}>Beneficiário/Pagador (Opcional)</label>
+                    <select value={formState.payeeId} onChange={e => setFormState(f => ({...f, payeeId: e.target.value}))} className={inputClass}>
+                        <option value="">Nenhum</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                 </div>
-
-                <div>
-                    <label className={labelClass}>Anexar Comprovante</label>
+                { isPayment && (
+                    <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
+                        <p className="text-sm font-semibold text-primary">Vinculado ao pagamento de mensalidade:</p>
+                        <div className="text-sm">
+                            <p><strong>Membro:</strong> {allMembers.find(m => m.id === paymentLink.memberId)?.name}</p>
+                            <p><strong>Mês Ref:</strong> {new Date(paymentLink.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</p>
+                        </div>
+                    </div>
+                )}
+                 <div><label className={labelClass}>Observações</label><textarea value={formState.comments} onChange={e => setFormState(f => ({...f, comments: e.target.value}))} className={inputClass} rows={2}/></div>
+                 <div><label className={labelClass}>Anexo</label>
                     <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
                     <div className="flex gap-2">
                         <button type="button" onClick={() => fileInputRef.current?.click()} className={`${inputClass} flex-1 text-left ${formState.attachmentFilename ? 'text-primary' : 'text-muted-foreground'} flex items-center gap-2`}>
-                            <Paperclip className="h-4 w-4" />
-                            {formState.attachmentFilename || 'Escolher arquivo...'}
+                            <Paperclip className="h-4 w-4" />{formState.attachmentFilename || 'Escolher arquivo...'}
                         </button>
                         <button type="button" onClick={handlePasteAttachment} className="p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border text-muted-foreground hover:text-primary transition-colors">
                             <ClipboardPaste className="h-5 w-5" />
                         </button>
                     </div>
-                    {formState.attachmentUrl && formState.attachmentFilename?.match(/\.(jpeg|jpg|gif|png)$/i) && (
-                        <img src={formState.attachmentUrl} alt="Preview" className="mt-2 h-20 w-20 object-cover rounded-md"/>
-                    )}
                 </div>
             </div>
-            <div className={`flex items-center ${isEdit ? 'justify-between' : 'justify-center'}`}>
-                {isEdit && (
-                     <button
-                        type="button"
-                        onClick={() => setIsDeleteModalOpen(true)}
-                        className="text-sm font-semibold text-danger hover:underline disabled:opacity-50"
-                        disabled={isSubmitting}
-                    >
-                        Excluir Transação
-                    </button>
-                )}
-                <SubmitButton isSubmitting={isSubmitting} text="Salvar" />
-            </div>
-            <DeleteConfirmationModal />
+            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
         </form>
     );
 };
 
-
 export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { returnView = { name: 'financial' } } = viewState as { name: 'financial-report-form', returnView?: ViewState };
-    const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<any>({ accounts: [], categories: [], payees: [], tags: [], projects: [] });
-    const toast = useToast();
+    const { returnView } = viewState as { name: 'financial-report-form', returnView: ViewState };
     const [filters, setFilters] = useState({
-        startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
+        startDate: new Date(new Date().setDate(1)).toISOString().slice(0, 10),
         endDate: new Date().toISOString().slice(0, 10),
-        accountIds: [] as string[],
         type: '' as 'income' | 'expense' | '',
+        accountId: '',
+        categoryId: ''
     });
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [accounts, setAccounts] = useState<Account[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
 
     useEffect(() => {
-        const loadData = async () => {
-            setLoading(true);
-            const [accs, cats, pys, tgs, projs] = await Promise.all([
-                accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll()
-            ]);
-            setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs });
-            setFilters(f => ({ ...f, accountIds: accs.map(a => a.id) }));
-            setLoading(false);
+        const load = async () => {
+            const [accs, cats] = await Promise.all([accountsApi.getAll(), categoriesApi.getAll()]);
+            setAccounts(accs);
+            setCategories(cats);
         };
-        loadData();
+        load();
     }, []);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        try {
-            const reportData = await getFinancialReport(filters);
-            setView({
-                name: 'report-view',
-                report: {
-                    type: 'financial',
-                    data: {
-                        transactions: reportData,
-                        allData: data,
-                    },
-                    generatedAt: new Date().toISOString(),
-                    title: 'Relatório Financeiro Personalizado'
-                }
-            });
-        } catch (err) {
-            toast.error("Erro ao gerar relatório.");
-        } finally {
-            setIsSubmitting(false);
-        }
+    const handleGenerate = async () => {
+        const reportFilters = {
+            startDate: filters.startDate,
+            endDate: filters.endDate,
+            type: filters.type || undefined,
+            categoryId: filters.categoryId || undefined,
+            accountIds: filters.accountId ? [filters.accountId] : accounts.map(a => a.id),
+        };
+        const transactions = await getFinancialReport(reportFilters);
+        const allData = { categories, payees: [], accounts };
+        const report: ReportData = {
+            type: 'financial',
+            data: { transactions, allData },
+            generatedAt: new Date().toISOString(),
+            title: `Relatório de ${new Date(filters.startDate+'T12:00:00Z').toLocaleDateString('pt-BR')} a ${new Date(filters.endDate+'T12:00:00Z').toLocaleDateString('pt-BR')}`
+        };
+        setView({ name: 'report-view', report });
     };
 
-    if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
-    
-    const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
+    const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
-            <PageHeader title="Gerar Relatório Financeiro" onBack={() => setView(returnView)} />
-            <div className="space-y-4 bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border">
+        <div className="space-y-6 max-w-lg mx-auto">
+            <PageHeader title="Filtros do Relatório" onBack={() => setView(returnView)} />
+            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <DateField id="startDate" label="Data de Início" value={filters.startDate} onChange={date => setFilters(f => ({...f, startDate: date}))} required />
-                    <DateField id="endDate" label="Data de Fim" value={filters.endDate} onChange={date => setFilters(f => ({...f, endDate: date}))} required />
+                    <DateField id="startDate" label="Data de Início" value={filters.startDate} onChange={date => setFilters(f => ({ ...f, startDate: date }))} />
+                    <DateField id="endDate" label="Data de Fim" value={filters.endDate} onChange={date => setFilters(f => ({ ...f, endDate: date }))} />
                 </div>
-                <div>
-                    <label className={labelClass}>Contas</label>
-                    <select
-                        multiple
-                        value={filters.accountIds}
-                        onChange={e => setFilters(f => ({...f, accountIds: Array.from(e.target.selectedOptions, option => option.value)}))}
-                        className={`${inputClass} h-32`}
-                    >
-                        {data.accounts.map((acc: Account) => (
-                            <option key={acc.id} value={acc.id}>{acc.name}</option>
-                        ))}
-                    </select>
-                </div>
-                 <div>
-                    <label className={labelClass}>Tipo de Transação</label>
-                    <select value={filters.type} onChange={e => setFilters(f => ({...f, type: e.target.value as any}))} className={inputClass}>
-                        <option value="">Todos</option>
-                        <option value="income">Receitas</option>
-                        <option value="expense">Despesas</option>
-                    </select>
-                </div>
+                <div><label className={labelClass}>Conta</label><select value={filters.accountId} onChange={e => setFilters(f => ({...f, accountId: e.target.value}))} className={inputClass}><option value="">Todas</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+                <div><label className={labelClass}>Tipo</label><select value={filters.type} onChange={e => setFilters(f => ({...f, type: e.target.value as any}))} className={inputClass}><option value="">Todos</option><option value="income">Receita</option><option value="expense">Despesa</option></select></div>
+                <div><label className={labelClass}>Categoria</label><select value={filters.categoryId} onChange={e => setFilters(f => ({...f, categoryId: e.target.value}))} className={inputClass}><option value="">Todas</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             </div>
-            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Gerar Relatório" /></div>
-        </form>
+            <div className="flex justify-center">
+                <motion.button 
+                    type="button"
+                    onClick={handleGenerate}
+                    className="bg-primary text-primary-foreground font-bold py-3 px-6 rounded-full hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/30 text-base"
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                >
+                    Gerar Relatório
+                </motion.button>
+            </div>
+        </div>
     );
 };
 
 export const FutureIncomePage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    const { returnView = { name: 'financial' } } = viewState as { name: 'future-income-view', returnView?: ViewState };
+    const { returnView } = viewState as { name: 'future-income-view', returnView: ViewState };
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<{ categories: Category[], payees: Payee[] }>({ categories: [], payees: [] });
-    const toast = useToast();
 
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setLoading(true);
-                const [trxs, cats, pys] = await Promise.all([
-                    getFutureIncomeTransactions(),
-                    categoriesApi.getAll(),
-                    payeesApi.getAll()
-                ]);
-                setTransactions(trxs);
-                setData({ categories: cats, payees: pys });
-            } catch (error) {
-                console.error("Error fetching future income:", error);
-                toast.error("Erro ao carregar previsão de receitas.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, [toast]);
+        getFutureIncomeTransactions().then(data => {
+            setTransactions(data);
+            setLoading(false);
+        });
+    }, []);
 
-    const categoryMap = useMemo(() => new Map(data.categories.map(c => [c.id, c.name])), [data.categories]);
+    const totalAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
 
-    if (loading) {
-        return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
-    }
+    if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     return (
-        <div className="space-y-6 max-w-2xl mx-auto">
-            <PageHeader title="Previsão de Receitas" onBack={() => setView(returnView)} />
-            {transactions.length > 0 ? (
-                <div className="space-y-3">
-                    {transactions.map(trx => (
-                        <motion.div
-                            key={trx.id}
-                            layout
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border"
-                        >
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <p className="font-semibold text-foreground dark:text-dark-foreground">{trx.description}</p>
-                                    <p className="text-sm text-muted-foreground">{categoryMap.get(trx.categoryId) || 'N/A'}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="font-bold text-success">{formatCurrency(trx.amount)}</p>
-                                    <p className="text-xs text-muted-foreground">em {formatDate(trx.date)}</p>
-                                </div>
-                            </div>
-                        </motion.div>
-                    ))}
-                </div>
-            ) : (
-                <div className="text-center py-20 text-muted-foreground">
-                    <p>Nenhuma receita futura encontrada.</p>
-                </div>
-            )}
+        <div className="space-y-6 max-w-lg mx-auto">
+            <PageHeader title="Receitas Futuras" onBack={() => setView(returnView)} />
+             <div className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border text-center">
+                <p className="text-sm font-medium text-muted-foreground">TOTAL A RECEBER</p>
+                <p className="text-3xl font-bold font-display text-success">{formatCurrency(totalAmount)}</p>
+            </div>
+            <div className="space-y-3">
+                {transactions.length > 0 ? transactions.map(t => (
+                    <div key={t.id} className="bg-card dark:bg-dark-card p-3 rounded-lg border border-border dark:border-dark-border flex justify-between items-center">
+                        <div>
+                            <p className="font-semibold">{t.description}</p>
+                            <p className="text-sm text-muted-foreground">{formatDate(t.date)}</p>
+                        </div>
+                        <p className="font-semibold text-success">{formatCurrency(t.amount)}</p>
+                    </div>
+                )) : (
+                    <p className="text-center text-muted-foreground py-10">Nenhuma receita futura registrada.</p>
+                )}
+            </div>
         </div>
     );
 };

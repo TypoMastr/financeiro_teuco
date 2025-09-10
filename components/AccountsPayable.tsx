@@ -7,6 +7,7 @@ import { PlusCircle, Edit, Trash, DollarSign, Search, ClipboardList, Repeat, Pap
 import { motion, AnimatePresence } from 'framer-motion';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
+import { AISummary } from './AISummary';
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -313,6 +314,17 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
         );
     };
 
+    const aiSummaryPrompt = `
+        Você é um assistente financeiro. Analise o JSON de contas a pagar e o resumo.
+        Forneça um resumo conciso sobre a situação das contas a pagar.
+        Destaque:
+        1. O valor total de contas já vencidas (previousOverdue.amount).
+        2. O valor total de contas que ainda precisam ser pagas este mês (thisMonth.openAmount).
+        3. Mencione as 2 contas mais caras que estão pendentes ou vencidas na lista 'filteredBills'.
+        Seja direto e use negrito para valores.
+    `;
+
+
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     return (
@@ -327,6 +339,11 @@ export const AccountsPayable: React.FC<{ viewState: ViewState, setView: (view: V
                     <span>Nova Conta</span>
                 </motion.button>
             </div>
+
+            <AISummary
+                data={{ summary, filteredBills: filteredBills.filter(b => b.status !== 'paid').slice(0, 20) }}
+                prompt={aiSummaryPrompt}
+            />
             
             <div className="bg-card dark:bg-dark-card p-3 rounded-lg border border-border dark:border-dark-border">
                  <div className="flex justify-between items-center text-center gap-2">

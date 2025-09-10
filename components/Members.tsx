@@ -5,6 +5,7 @@ import { Member, PaymentStatus, ActivityStatus, SortOption, ViewState } from '..
 import { getMembers } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Phone, DollarSign, ChevronRight, Search, UserPlus, Users } from './Icons';
+import { AISummary } from './AISummary';
 
 const statusStyles: { [key in PaymentStatus]: { bg: string, text: string, ring: string, name: string } } = {
   [PaymentStatus.EmDia]: { bg: 'bg-green-100 dark:bg-green-500/10', text: 'text-green-700 dark:text-green-300', ring: 'ring-green-500/20', name: 'Em Dia' },
@@ -269,12 +270,26 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
   
   const selectClass = "w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
+  const aiSummaryPrompt = `
+      Você é um assistente financeiro. Analise a lista de membros em JSON e forneça um resumo conciso sobre a situação das mensalidades.
+      Destaque:
+      1. O número total de membros na lista filtrada.
+      2. Quantos membros estão com pagamentos pendentes ('Atrasado').
+      3. O valor total somado de todas as pendências (some o campo 'totalDue' dos membros pendentes).
+      4. Mencione se há membros notáveis, como isentos ('Isento') ou em licença ('Em Licença').
+      Seja breve e amigável. Use negrito para números e valores importantes.
+  `;
 
   return (
     <div className="space-y-6">
         <motion.div variants={itemVariants}>
             <h2 className="text-3xl md:text-4xl font-bold font-display text-foreground dark:text-dark-foreground text-center sm:text-left hidden sm:block">Mensalidades</h2>
         </motion.div>
+        
+        <AISummary
+            data={filteredAndSortedMembers}
+            prompt={aiSummaryPrompt}
+        />
       
         <motion.div variants={containerVariants} className="flex flex-col items-center gap-4">
             <motion.div variants={itemVariants} className="w-full max-w-3xl flex flex-col sm:flex-row gap-3 sm:gap-4 items-end">
