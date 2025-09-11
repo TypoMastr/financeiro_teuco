@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, LoadingSpinner, Sparkles } from './Icons';
+import { LoadingSpinner, Sparkles } from './Icons';
 import { useToast } from './Notifications';
 
 interface AISummaryProps {
@@ -69,7 +69,7 @@ export const AISummary: React.FC<AISummaryProps> = ({ data, prompt: basePrompt }
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-full">
-                <Bot className="h-5 w-5 text-primary" />
+                <Sparkles className="h-5 w-5 text-primary" />
             </div>
             <h3 className="text-lg font-bold font-display text-foreground dark:text-dark-foreground">Resumo da IA</h3>
         </div>
