@@ -521,21 +521,43 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
     
         setIsAiProcessing(true);
         try {
+            const recentTransactions = await transactionsApi.getRecent(30);
+            const examples = recentTransactions.map(t => {
+                const category = data.categories.find(c => c.id === t.categoryId)?.name || 'N/A';
+                const payee = data.payees.find(p => p.id === t.payeeId)?.name || 'N/A';
+                const account = data.accounts.find(a => a.id === t.accountId)?.name || 'N/A';
+                const comments = t.comments ? `, Observações: "${t.comments}"` : '';
+                return `- Descrição: "${t.description}", Categoria: "${category}", Beneficiário: "${payee}", Conta: "${account}"${comments}`;
+            }).join('\n');
+
             const today = new Date().toLocaleDateString('pt-BR');
             const prompt = `
-                Analise a entrada do usuário para uma transação financeira e extraia os detalhes.
-                A data de hoje é ${today}. Se o usuário mencionar apenas um dia (ex: "dia 15"), assuma que é do mês e ano atuais.
-    
-                Use as listas a seguir para encontrar os IDs correspondentes. Combine os nomes e retorne o ID exato.
-    
+                Você é um assistente financeiro inteligente. Sua tarefa é extrair detalhes de uma descrição de texto livre e preencher um formulário.
+                Aprenda com os padrões das transações passadas do usuário para fazer melhores previsões para categoria, beneficiário e conta.
+
+                **Exemplos de Transações Recentes (Aprenda com estes):**
+                ${examples}
+
+                **Sua Tarefa:**
+                1. Analise a nova entrada do usuário abaixo. A data de hoje é ${today}.
+                2. **Interpretação de Datas:** Interprete termos relativos como "hoje", "ontem", "anteontem". Calcule a data absoluta no formato AAAA-MM-DD para o campo 'date'. Se o usuário mencionar apenas um dia (ex: "dia 15"), assuma que é do mês e ano atuais.
+                3. **Descrição Padronizada:** Padronize a descrição (ex: "conta de luz" para "Conta de Luz - Setembro/2024").
+                4. **Observações Detalhadas:** Crie um texto para o campo 'comments' que resuma a transação. Se o usuário usou um termo relativo de data, não o repita; em vez disso, inclua a data por extenso. Ex: "Pagamento realizado na quarta-feira, 12 de setembro de 2024."
+                5. **Vincular Contas a Pagar:** Analise se a descrição corresponde a alguma conta a pagar em aberto. Se houver uma correspondência forte (ex: "luz setembro" com uma conta de "Light" com vencimento em setembro), retorne o 'id' da conta no campo 'billId'.
+                
+                **REGRAS ESPECIAIS AO VINCULAR UMA CONTA A PAGAR:**
+                - Se você vincular uma conta ('billId'), a 'standardizedDescription' DEVE incluir a data de vencimento original. Ex: "Conta de Luz - Set/2024 (Venc. 15/09/2024)".
+                - Nas 'comments', calcule e adicione a diferença entre a data do pagamento (que você extraiu) e o vencimento da conta. Ex: "... Pagamento realizado com 3 dias de atraso." ou "... Pagamento adiantado em 5 dias."
+
+                Use as listas a seguir para encontrar os IDs correspondentes.
                 Contas disponíveis: ${JSON.stringify(data.accounts.map(({ id, name }) => ({ id, name })))}
                 Categorias disponíveis (para o tipo '${formState.type}'): ${JSON.stringify(filteredCategories.map(({ id, name }) => ({ id, name })))}
                 Beneficiários disponíveis: ${JSON.stringify(data.payees.map(({ id, name }) => ({ id, name })))}
                 Contas a pagar em aberto: ${JSON.stringify(linkableBills.map(b => ({ id: b.id, description: b.description, dueDate: b.dueDate, amount: b.amount, isEstimate: b.isEstimate })))}
     
-                Entrada do usuário: "${formState.description}"
+                Nova Entrada do Usuário: "${formState.description}"
     
-                Analise a entrada e retorne os dados estruturados. Se a descrição do usuário corresponder a uma das contas a pagar (ex: "conta de luz setembro" com uma conta de "Light" com vencimento em setembro), retorne o 'id' da conta no campo 'billId'. Dê preferência a contas com o mesmo mês/ano. Se for uma estimativa, o valor pode ser diferente.
+                Analise a entrada e retorne um objeto JSON.
             `;
             
             const responseSchema = {
@@ -547,7 +569,7 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                     categoryId: { type: Type.STRING, description: 'ID da categoria correspondente, ou null.' },
                     accountId: { type: Type.STRING, description: 'ID da conta correspondente, ou null.' },
                     payeeId: { type: Type.STRING, description: 'ID do beneficiário correspondente, ou null.' },
-                    comments: { type: Type.STRING, description: 'Informações extras relevantes.' },
+                    comments: { type: Type.STRING, description: 'Um resumo explicativo da transação para referência futura.' },
                     billId: { type: Type.STRING, description: 'ID da conta a pagar correspondente, ou null.' },
                 }
             };

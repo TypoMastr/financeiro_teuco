@@ -921,6 +921,15 @@ export const transactionsApi = {
         if (error) throw error;
         return convertObjectKeys(data, toCamelCase);
     },
+    getRecent: async (limit: number = 30): Promise<Transaction[]> => {
+        const { data, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .order('date', { ascending: false })
+            .limit(limit);
+        if (error) throw error;
+        return convertObjectKeys(data, toCamelCase);
+    },
     add: async(transactionData: Omit<Transaction, 'id'>): Promise<{ data: Transaction, warning?: string }> => {
          const cleanedData = cleanTransactionDataForSupabase(transactionData);
          const finalTransactionData = { ...cleanedData };
