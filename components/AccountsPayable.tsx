@@ -574,7 +574,8 @@ export const BillFormPage: React.FC<{
             setView(returnView);
         } catch (error: any) {
             console.error("Failed to save bill:", error);
-            toast.error(`Falha ao salvar conta: ${error.message}`);
+            const errorMessage = error?.message || (typeof error === 'string' ? error : 'Ocorreu um erro desconhecido.');
+            toast.error(`Falha ao salvar conta: ${errorMessage}`);
         } finally {
             setIsSubmitting(false);
         }

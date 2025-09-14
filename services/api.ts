@@ -1,4 +1,3 @@
-
 import { createClient } from '@supabase/supabase-js';
 import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType, Leave } from '../types';
 
@@ -1000,6 +999,8 @@ export const transactionsApi = {
         const { data: oldData, error: findError } = await supabase.from('transactions').select('*').eq('id', transactionId).single();
         if (findError) throw findError;
 
+        await supabase.from('payments').delete().eq('transaction_id', transactionId);
+    
         if (oldData.payable_bill_id) {
             const { data: billToUpdate, error: billError } = await supabase.from('payable_bills').select('*').eq('id', oldData.payable_bill_id).single();
             if (billError) {
@@ -1021,7 +1022,7 @@ export const transactionsApi = {
                 if (updateError) {
                     console.error("Failed to revert linked bill status:", updateError);
                 } else {
-                    await addLogEntry(`Status da conta "${billToUpdate.description}" revertido para "${newStatus}" devido à exclusão da transação.`, 'update', 'bill', { ...billToUpdate, status: newStatus, paid_date: null, transaction_id: null });
+                    await addLogEntry(`Status da conta "${billToUpdate.description}" revertido para "${newStatus}" devido à exclusão da transação de pagamento.`, 'update', 'bill', { ...billToUpdate, status: newStatus, paid_date: null, transaction_id: null });
                 }
             }
         }
@@ -1158,30 +1159,30 @@ export const payableBillsApi = {
     }
 };
 
-export async function addPayableBill(billData: { description: string, payeeId: string, categoryId: string, amount: number, firstDueDate: string, notes: string, paymentType: 'single' | 'installments' | 'monthly', installments?: number, isEstimate?: boolean }) {
+export async function addPayableBill(billData: { description: string, payeeId: string, categoryId: string, amount: number, firstDueDate: string, notes: string, paymentType: 'single' | 'installments' | 'monthly', installments?: number, isEstimate?: boolean, attachmentUrl?: string, attachmentFilename?: string }) {
     const { paymentType, firstDueDate, installments, isEstimate, notes, ...restOfBillData } = billData;
     
     const finalNotes = isEstimate 
         ? `[ESTIMATE] ${notes || ''}`.trim() 
         : (notes || '').replace(/\[ESTIMATE\]\s*/, '').trim();
 
-    const commonData = { ...restOfBillData, notes: finalNotes };
+    const commonData = { ...restOfBillData, notes: finalNotes, isEstimate: isEstimate || false };
     
     if (paymentType === 'single') {
-        await payableBillsApi.add({ ...commonData, dueDate: firstDueDate, status: 'pending' });
+        await payableBillsApi.add({ ...commonData, dueDate: firstDueDate, status: 'pending' } as Omit<PayableBill, 'id'>);
     } else if (paymentType === 'installments' && installments && installments > 1) {
         const groupId = crypto.randomUUID();
         for (let i = 0; i < installments; i++) {
             const dueDate = new Date(firstDueDate);
             dueDate.setMonth(dueDate.getMonth() + i);
-            await payableBillsApi.add({ ...commonData, description: `${commonData.description} (${i + 1}/${installments})`, dueDate: dueDate.toISOString().slice(0, 10), status: 'pending', installmentInfo: { current: i + 1, total: installments }, installmentGroupId: groupId });
+            await payableBillsApi.add({ ...commonData, description: `${commonData.description} (${i + 1}/${installments})`, dueDate: dueDate.toISOString().slice(0, 10), status: 'pending', installmentInfo: { current: i + 1, total: installments }, installmentGroupId: groupId } as Omit<PayableBill, 'id'>);
         }
     } else if (paymentType === 'monthly') {
         const recurringId = crypto.randomUUID();
         for (let i = 0; i < 12; i++) { // Create for 1 year
             const dueDate = new Date(firstDueDate);
             dueDate.setMonth(dueDate.getMonth() + i);
-            await payableBillsApi.add({ ...commonData, dueDate: dueDate.toISOString().slice(0, 10), status: 'pending', recurringId });
+            await payableBillsApi.add({ ...commonData, dueDate: dueDate.toISOString().slice(0, 10), status: 'pending', recurringId } as Omit<PayableBill, 'id'>);
         }
     }
 }
@@ -1203,6 +1204,29 @@ export async function payBill(billId: string, paymentData: { accountId: string, 
     });
     
     await payableBillsApi.update(billId, { status: 'paid', paidDate: transaction.date, transactionId: transaction.id, amount: transaction.amount, attachmentUrl: transaction.attachmentUrl, attachmentFilename: transaction.attachmentFilename });
+    return { warning };
+}
+
+export async function payBillWithTransactionData(billId: string, transactionData: Partial<Transaction>): Promise<{ warning?: string }> {
+    const { data: bill } = await supabase.from('payable_bills').select('*').eq('id', billId).single();
+    if (!bill) throw new Error("Bill not found");
+
+    const transactionPayload = { ...transactionData, payableBillId: billId };
+    const { data: newTransaction, warning } = await transactionsApi.add(transactionPayload as any);
+
+    const billUpdatePayload: Partial<PayableBill> = {
+        status: 'paid',
+        paidDate: newTransaction.date,
+        transactionId: newTransaction.id,
+        amount: newTransaction.amount,
+        description: newTransaction.description,
+        notes: newTransaction.comments,
+        attachmentUrl: newTransaction.attachmentUrl,
+        attachmentFilename: newTransaction.attachmentFilename,
+    };
+    
+    await payableBillsApi.update(billId, billUpdatePayload);
+    
     return { warning };
 }
 

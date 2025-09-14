@@ -5,12 +5,29 @@ import {
     accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi, transactionsApi, 
     getAccountsWithBalance, getFinancialReport, getFutureIncomeTransactions, 
     updateTransactionAndPaymentLink, getPaymentByTransactionId, getMembers,
-    payableBillsApi, getDashboardStats
+    payableBillsApi, getDashboardStats, payBillWithTransactionData
 } from '../services/api';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
-import { DollarSign, TrendingUp, TrendingDown, PlusCircle, Filter, FileText, ChevronRight, Briefcase, Paperclip, ClipboardPaste, Users, PieChart, Layers, Tag as TagIcon, Wallet, History } from './Icons';
+import { DollarSign, TrendingUp, TrendingDown, PlusCircle, Filter, FileText, ChevronRight, Briefcase, Paperclip, ClipboardPaste, Users, PieChart, Layers, Tag as TagIcon, Wallet, History, Sparkles, LoadingSpinner, AlertTriangle, Trash } from './Icons';
 import { AISummary } from './AISummary';
+import { GoogleGenAI, Type } from '@google/genai';
+
+// Conditionally initialize GoogleGenAI
+let ai: GoogleGenAI | null = null;
+const apiKey = process.env.API_KEY;
+
+try {
+    if (apiKey) {
+        ai = new GoogleGenAI({ apiKey });
+    } else {
+        console.error("API_KEY for Gemini is not configured. AI features will be disabled.");
+    }
+} catch (error) {
+    console.error("Failed to initialize GoogleGenAI, likely due to a missing API key:", error);
+    ai = null;
+}
+
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -437,7 +454,7 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
     const [formState, setFormState] = useState({
         description: '', amount: 0, date: new Date().toISOString().slice(0, 10), type: 'expense' as 'income' | 'expense',
         accountId: '', categoryId: '', payeeId: '', tagIds: [] as string[], projectId: '', comments: '',
-        attachmentUrl: '', attachmentFilename: ''
+        attachmentUrl: '', attachmentFilename: '', payableBillId: undefined as string | undefined
     });
     const [amountStr, setAmountStr] = useState('R$ 0,00');
 
@@ -445,23 +462,150 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
     const [paymentLink, setPaymentLink] = useState({ memberId: '', referenceMonth: '' });
     const [allMembers, setAllMembers] = useState<Member[]>([]);
 
-    const [data, setData] = useState<{ accounts: Account[], categories: Category[], payees: Payee[], tags: Tag[], projects: Project[] }>({
-        accounts: [], categories: [], payees: [], tags: [], projects: []
+    const [data, setData] = useState<{ accounts: Account[], categories: Category[], payees: Payee[], tags: Tag[], projects: Project[], bills: PayableBill[] }>({
+        accounts: [], categories: [], payees: [], tags: [], projects: [], bills: []
     });
+    const [isAiProcessing, setIsAiProcessing] = useState(false);
+    const [linkedBillId, setLinkedBillId] = useState('');
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
 
     const formatCurrencyForInput = (value: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
     const parseCurrencyFromInput = (formattedValue: string): number => {
         const numericString = formattedValue.replace(/[R$\s.]/g, '').replace(',', '.');
         return parseFloat(numericString) || 0;
     };
+    
+    const filteredCategories = useMemo(() => data.categories.filter(c => c.type === formState.type || c.type === 'both'), [data.categories, formState.type]);
+
+    const linkableBills = useMemo(() => {
+        return data.bills
+            .filter(b => b.status !== 'paid' || !b.transactionId)
+            .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    }, [data.bills]);
+    
+    const handleBillLinkChange = (billId: string) => {
+        setLinkedBillId(billId);
+        if (billId) {
+            const selectedBill = linkableBills.find(b => b.id === billId);
+            if (selectedBill) {
+                setFormState(prev => ({
+                    ...prev,
+                    description: selectedBill.description,
+                    amount: selectedBill.amount,
+                    payeeId: selectedBill.payeeId,
+                    categoryId: selectedBill.categoryId,
+                    comments: selectedBill.notes || '',
+                    payableBillId: selectedBill.id,
+                }));
+                setAmountStr(formatCurrencyForInput(selectedBill.amount));
+            }
+        } else {
+            // Unlink and reset form fields
+            setFormState(prev => ({
+                ...prev, description: '', amount: 0, payeeId: '', categoryId: '', comments: '', payableBillId: undefined,
+            }));
+            setAmountStr(formatCurrencyForInput(0));
+        }
+    };
+
+    const handleAIFill = async () => {
+        if (!ai) {
+            toast.error("A funcionalidade de IA não está configurada.");
+            return;
+        }
+        if (!formState.description) {
+            toast.info("Digite uma descrição para a IA analisar.");
+            return;
+        }
+    
+        setIsAiProcessing(true);
+        try {
+            const today = new Date().toLocaleDateString('pt-BR');
+            const prompt = `
+                Analise a entrada do usuário para uma transação financeira e extraia os detalhes.
+                A data de hoje é ${today}. Se o usuário mencionar apenas um dia (ex: "dia 15"), assuma que é do mês e ano atuais.
+    
+                Use as listas a seguir para encontrar os IDs correspondentes. Combine os nomes e retorne o ID exato.
+    
+                Contas disponíveis: ${JSON.stringify(data.accounts.map(({ id, name }) => ({ id, name })))}
+                Categorias disponíveis (para o tipo '${formState.type}'): ${JSON.stringify(filteredCategories.map(({ id, name }) => ({ id, name })))}
+                Beneficiários disponíveis: ${JSON.stringify(data.payees.map(({ id, name }) => ({ id, name })))}
+                Contas a pagar em aberto: ${JSON.stringify(linkableBills.map(b => ({ id: b.id, description: b.description, dueDate: b.dueDate, amount: b.amount, isEstimate: b.isEstimate })))}
+    
+                Entrada do usuário: "${formState.description}"
+    
+                Analise a entrada e retorne os dados estruturados. Se a descrição do usuário corresponder a uma das contas a pagar (ex: "conta de luz setembro" com uma conta de "Light" com vencimento em setembro), retorne o 'id' da conta no campo 'billId'. Dê preferência a contas com o mesmo mês/ano. Se for uma estimativa, o valor pode ser diferente.
+            `;
+            
+            const responseSchema = {
+                type: Type.OBJECT,
+                properties: {
+                    standardizedDescription: { type: Type.STRING, description: 'Descrição limpa e padronizada (ex: "Conta de Luz - Setembro/2024").' },
+                    amount: { type: Type.NUMBER, description: 'Valor numérico.' },
+                    date: { type: Type.STRING, description: 'Data no formato AAAA-MM-DD.' },
+                    categoryId: { type: Type.STRING, description: 'ID da categoria correspondente, ou null.' },
+                    accountId: { type: Type.STRING, description: 'ID da conta correspondente, ou null.' },
+                    payeeId: { type: Type.STRING, description: 'ID do beneficiário correspondente, ou null.' },
+                    comments: { type: Type.STRING, description: 'Informações extras relevantes.' },
+                    billId: { type: Type.STRING, description: 'ID da conta a pagar correspondente, ou null.' },
+                }
+            };
+    
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: { responseMimeType: "application/json", responseSchema },
+            });
+    
+            const result = JSON.parse(response.text);
+
+            if (result.billId && linkableBills.some(b => b.id === result.billId)) {
+                handleBillLinkChange(result.billId); // Sets bill's data first
+                const matchedBill = linkableBills.find(b => b.id === result.billId)!;
+                
+                // Now, override with AI-extracted values
+                setFormState(prev => ({
+                    ...prev,
+                    description: result.standardizedDescription || prev.description, // Use AI description
+                    amount: result.amount || prev.amount, // Use AI amount
+                    date: result.date || prev.date,
+                    comments: result.comments || prev.comments,
+                    accountId: result.accountId || prev.accountId, 
+                }));
+                setAmountStr(formatCurrencyForInput(result.amount || matchedBill.amount));
+                toast.success(`Conta "${matchedBill.description}" vinculada pela IA!`);
+
+            } else {
+                setFormState(prev => ({
+                    ...prev,
+                    description: result.standardizedDescription || prev.description,
+                    amount: result.amount || prev.amount,
+                    date: result.date || prev.date,
+                    categoryId: result.categoryId || prev.categoryId,
+                    accountId: result.accountId || prev.accountId,
+                    payeeId: result.payeeId || prev.payeeId,
+                    comments: result.comments || prev.comments,
+                }));
+                setAmountStr(formatCurrencyForInput(result.amount || formState.amount));
+                toast.success("Formulário preenchido pela IA!");
+            }
+    
+        } catch (error) {
+            console.error("AI form fill error:", error);
+            toast.error("A IA não conseguiu analisar a descrição.");
+        } finally {
+            setIsAiProcessing(false);
+        }
+    };
 
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            const [accs, cats, pys, tgs, projs, members] = await Promise.all([
-                accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), getMembers()
+            const [accs, cats, pys, tgs, projs, members, billsData] = await Promise.all([
+                accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), getMembers(), payableBillsApi.getAll()
             ]);
-            setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs });
+            setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs, bills: billsData });
             setAllMembers(members.filter(m => m.activityStatus === 'Ativo'));
             
             if (isEdit && transactionId) {
@@ -472,9 +616,11 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                         description: trx.description, amount: trx.amount, date: trx.date.slice(0, 10), type: trx.type,
                         accountId: trx.accountId, categoryId: trx.categoryId, payeeId: trx.payeeId || '', tagIds: trx.tagIds || [],
                         projectId: trx.projectId || '', comments: trx.comments || '',
-                        attachmentUrl: trx.attachmentUrl || '', attachmentFilename: trx.attachmentFilename || ''
+                        attachmentUrl: trx.attachmentUrl || '', attachmentFilename: trx.attachmentFilename || '',
+                        payableBillId: trx.payableBillId
                     });
                     setAmountStr(formatCurrencyForInput(trx.amount));
+                    if(trx.payableBillId) setLinkedBillId(trx.payableBillId);
                     
                     const payment = await getPaymentByTransactionId(trx.id);
                     if (payment) {
@@ -528,7 +674,12 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
         setIsSubmitting(true);
         try {
             const payload = { ...formState, date: new Date(formState.date + 'T12:00:00Z').toISOString() };
-            if (isEdit && transactionId) {
+            
+            if (!isEdit && linkedBillId) {
+                const { warning } = await payBillWithTransactionData(linkedBillId, payload);
+                if (warning) toast.info(warning);
+                toast.success('Transação adicionada e conta paga com sucesso!');
+            } else if (isEdit && transactionId) {
                 if (isPayment) {
                     await updateTransactionAndPaymentLink(transactionId, payload, paymentLink);
                 } else {
@@ -547,62 +698,161 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
         }
     };
 
+    const handleDeleteTransaction = async () => {
+        if (!transactionId) return;
+        setIsSubmitting(true);
+        try {
+            await transactionsApi.remove(transactionId);
+            toast.success('Transação excluída com sucesso!');
+            setView(returnView);
+        } catch (error: any) {
+            toast.error(`Falha ao excluir: ${error.message}`);
+        } finally {
+            setIsSubmitting(false);
+            setIsDeleteModalOpen(false);
+        }
+    };
+
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-    const filteredCategories = data.categories.filter(c => c.type === formState.type || c.type === 'both');
+    
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
-            <PageHeader title={isEdit ? "Editar Transação" : "Nova Transação"} onBack={() => setView(returnView)} />
-            <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
-                <div className="flex bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
-                    <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'expense', categoryId: '' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'expense' ? 'bg-card dark:bg-dark-card shadow' : ''}`}>Despesa</button>
-                    <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'income', categoryId: '' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'income' ? 'bg-card dark:bg-dark-card shadow' : ''}`}>Receita</button>
-                </div>
+        <>
+            <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">
+                <PageHeader title={isEdit ? "Editar Transação" : "Nova Transação"} onBack={() => setView(returnView)} />
+                <div className="bg-card dark:bg-dark-card p-6 rounded-lg border border-border dark:border-dark-border space-y-4">
+                    <div className="flex bg-muted/50 dark:bg-dark-muted/50 p-1 rounded-lg">
+                        <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'expense', categoryId: '' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'expense' ? 'bg-destructive text-destructive-foreground shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Despesa</button>
+                        <button type="button" onClick={() => setFormState(f => ({ ...f, type: 'income', categoryId: '' }))} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all duration-300 ${formState.type === 'income' ? 'bg-success text-white shadow' : 'hover:bg-card/50 dark:hover:bg-dark-card/50'}`}>Receita</button>
+                    </div>
 
-                <div><label className={labelClass}>Descrição</label><input type="text" value={formState.description} onChange={e => setFormState(f => ({...f, description: e.target.value}))} required className={inputClass}/></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass}/></div>
-                    <DateField id="date" label="Data" value={formState.date} onChange={date => setFormState(f => ({ ...f, date }))} required />
-                </div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><label className={labelClass}>Conta</label><select value={formState.accountId} onChange={e => setFormState(f => ({...f, accountId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{data.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-                    <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} onChange={e => setFormState(f => ({...f, categoryId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                </div>
-                <div>
-                    <label className={labelClass}>Beneficiário/Pagador (Opcional)</label>
-                    <select value={formState.payeeId} onChange={e => setFormState(f => ({...f, payeeId: e.target.value}))} className={inputClass}>
-                        <option value="">Nenhum</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                </div>
-                { isPayment && (
-                    <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
-                        <p className="text-sm font-semibold text-primary">Vinculado ao pagamento de mensalidade:</p>
-                        <div className="text-sm">
-                            <p><strong>Membro:</strong> {allMembers.find(m => m.id === paymentLink.memberId)?.name}</p>
-                            <p><strong>Mês Ref:</strong> {new Date(paymentLink.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</p>
+                    <div>
+                        <div className="flex justify-between items-center mb-1.5">
+                            <label className={labelClass}>Descrição</label>
+                            <button type="button" onClick={handleAIFill} disabled={isAiProcessing || !formState.description} className="flex items-center gap-1.5 text-xs font-semibold text-primary disabled:opacity-50 disabled:cursor-not-allowed">
+                                {isAiProcessing ? <LoadingSpinner className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                                Preencher com IA
+                            </button>
+                        </div>
+                        <input type="text" value={formState.description} onChange={e => setFormState(f => ({...f, description: e.target.value}))} required className={inputClass}/>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div><label className={labelClass}>Valor</label><input type="text" value={amountStr} onChange={handleAmountChange} required className={inputClass}/></div>
+                        <DateField id="date" label="Data" value={formState.date} onChange={date => setFormState(f => ({ ...f, date }))} required />
+                    </div>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div><label className={labelClass}>Conta</label><select value={formState.accountId} onChange={e => setFormState(f => ({...f, accountId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{data.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+                        <div><label className={labelClass}>Categoria</label><select value={formState.categoryId} onChange={e => setFormState(f => ({...f, categoryId: e.target.value}))} required className={inputClass}><option value="">Selecione...</option>{filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                    </div>
+                    <div>
+                        <label className={labelClass}>Beneficiário/Pagador (Opcional)</label>
+                        <select value={formState.payeeId} onChange={e => setFormState(f => ({...f, payeeId: e.target.value}))} className={inputClass}>
+                            <option value="">Nenhum</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                    </div>
+                    {formState.type === 'expense' && (
+                        <div>
+                            <label className={labelClass}>Vincular a Conta a Pagar (Opcional)</label>
+                            <select value={linkedBillId} onChange={e => handleBillLinkChange(e.target.value)} className={inputClass} disabled={isEdit && !!formState.payableBillId}>
+                                <option value="">Nenhuma</option>
+                                {linkableBills.map(b => (
+                                    <option key={b.id} value={b.id}>
+                                        {formatDate(b.dueDate)} - {b.description} ({formatCurrency(b.amount)})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    { isPayment && (
+                        <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
+                            <p className="text-sm font-semibold text-primary">Vinculado ao pagamento de mensalidade:</p>
+                            <div className="text-sm">
+                                <p><strong>Membro:</strong> {allMembers.find(m => m.id === paymentLink.memberId)?.name}</p>
+                                <p><strong>Mês Ref:</strong> {new Date(paymentLink.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</p>
+                            </div>
+                        </div>
+                    )}
+                     <div><label className={labelClass}>Observações</label><textarea value={formState.comments} onChange={e => setFormState(f => ({...f, comments: e.target.value}))} className={inputClass} rows={2}/></div>
+                     <div><label className={labelClass}>Anexo</label>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => fileInputRef.current?.click()} className={`${inputClass} flex-1 text-left ${formState.attachmentFilename ? 'text-primary' : 'text-muted-foreground'} flex items-center gap-2`}>
+                                <Paperclip className="h-4 w-4" />{formState.attachmentFilename || 'Escolher arquivo...'}
+                            </button>
+                            <button type="button" onClick={handlePasteAttachment} className="p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border text-muted-foreground hover:text-primary transition-colors">
+                                <ClipboardPaste className="h-5 w-5" />
+                            </button>
                         </div>
                     </div>
-                )}
-                 <div><label className={labelClass}>Observações</label><textarea value={formState.comments} onChange={e => setFormState(f => ({...f, comments: e.target.value}))} className={inputClass} rows={2}/></div>
-                 <div><label className={labelClass}>Anexo</label>
-                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-                    <div className="flex gap-2">
-                        <button type="button" onClick={() => fileInputRef.current?.click()} className={`${inputClass} flex-1 text-left ${formState.attachmentFilename ? 'text-primary' : 'text-muted-foreground'} flex items-center gap-2`}>
-                            <Paperclip className="h-4 w-4" />{formState.attachmentFilename || 'Escolher arquivo...'}
-                        </button>
-                        <button type="button" onClick={handlePasteAttachment} className="p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border text-muted-foreground hover:text-primary transition-colors">
-                            <ClipboardPaste className="h-5 w-5" />
-                        </button>
-                    </div>
                 </div>
-            </div>
-            <div className="flex justify-center"><SubmitButton isSubmitting={isSubmitting} text="Salvar" /></div>
-        </form>
+                <div className="flex justify-center items-center gap-4">
+                    {isEdit && (
+                        <motion.button
+                            type="button"
+                            onClick={() => setIsDeleteModalOpen(true)}
+                            className="bg-destructive/10 text-destructive font-semibold py-3 px-6 rounded-full hover:bg-destructive/20 transition-colors"
+                            whileTap={{ scale: 0.98 }}
+                        >
+                            Excluir
+                        </motion.button>
+                    )}
+                    <SubmitButton isSubmitting={isSubmitting} text="Salvar" />
+                </div>
+            </form>
+            <DeleteConfirmationModal 
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={handleDeleteTransaction}
+                description={formState.description}
+            />
+        </>
     );
 };
+
+const DeleteConfirmationModal: React.FC<{ isOpen: boolean; onClose: () => void; onConfirm: () => void; description: string }> = ({ isOpen, onClose, onConfirm, description }) => (
+    <AnimatePresence>
+        {isOpen && (
+            <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={onClose}
+            >
+                <motion.div
+                    initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                    className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                            <AlertTriangle className="h-6 w-6 text-destructive" aria-hidden="true" />
+                        </div>
+                        <h3 className="mt-4 text-xl font-bold font-display text-foreground dark:text-dark-foreground">Excluir Transação?</h3>
+                        <div className="mt-2">
+                            <p className="text-sm text-muted-foreground">
+                                Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita.
+                            </p>
+                            <p className="mt-2 text-sm font-semibold bg-muted dark:bg-dark-muted p-3 rounded-md">"{description}"</p>
+                        </div>
+                    </div>
+                    <div className="mt-6 flex justify-center gap-4">
+                        <button type="button" onClick={onClose} className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted">
+                            Cancelar
+                        </button>
+                        <button type="button" onClick={onConfirm} className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90">
+                            Sim, Excluir
+                        </button>
+                    </div>
+                </motion.div>
+            </motion.div>
+        )}
+    </AnimatePresence>
+);
 
 export const ReportFiltersPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
     const { returnView } = viewState as { name: 'financial-report-form', returnView: ViewState };
