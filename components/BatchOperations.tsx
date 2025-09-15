@@ -1,27 +1,28 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ViewState, Account, Category } from '../types';
-import { accountsApi, categoriesApi, transactionsApi } from '../services/api';
+import { ViewState, Account, Category, Payee } from '../types';
+import { accountsApi, categoriesApi, transactionsApi, payeesApi } from '../services/api';
 import { PageHeader, SubmitButton } from './common/PageLayout';
 import { useToast } from './Notifications';
 import { UploadCloud } from './Icons';
 
 export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
-    // FIX: Cast viewState to the correct discriminated union type to access its properties.
     const { returnView = { name: 'financial' } } = viewState as { name: 'batch-transaction-form', returnView: ViewState };
     const toast = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loading, setLoading] = useState(true);
     const [accounts, setAccounts] = useState<Account[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
+    const [payees, setPayees] = useState<Payee[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState('');
     const [batchText, setBatchText] = useState('');
 
     useEffect(() => {
         const loadData = async () => {
-            const [accs, cats] = await Promise.all([accountsApi.getAll(), categoriesApi.getAll()]);
+            const [accs, cats, pys] = await Promise.all([accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll()]);
             setAccounts(accs);
             setCategories(cats);
+            setPayees(pys);
             if (accs.length > 0) setSelectedAccountId(accs[0].id);
             setLoading(false);
         };
@@ -34,21 +35,45 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
         const lines = batchText.split('\n').filter(line => line.trim() !== '');
         const transactionsToAdd = [];
         const categoryMap = new Map(categories.map(c => [c.name.toLowerCase(), c]));
+        const payeeMap = new Map(payees.map(p => [p.name.toLowerCase(), p.id]));
 
         for (const line of lines) {
             try {
-                const [date, description, amount, type, categoryName] = line.split(';').map(s => s.trim());
+                const [date, description, amount, type, categoryName, payeeName] = line.split(';').map(s => s.trim());
                 if (!date || !description || !amount || !type || !categoryName) {
-                    throw new Error('Linha mal formatada');
+                    throw new Error('Formato incorreto. Campos obrigatórios faltando.');
                 }
                 const [day, month, year] = date.split('/');
                 const isoDate = new Date(`${year}-${month}-${day}T12:00:00Z`).toISOString();
                 const numericAmount = parseFloat(amount.replace(',', '.'));
-                const transactionType = type.toLowerCase() as 'income' | 'expense';
+                
+                const rawType = type.toLowerCase();
+                let transactionType: 'income' | 'expense';
+
+                if (rawType === 'receita' || rawType === 'income') {
+                    transactionType = 'income';
+                } else if (rawType === 'despesa' || rawType === 'expense') {
+                    transactionType = 'expense';
+                } else {
+                    throw new Error(`Tipo "${type}" inválido. Use 'receita' ou 'despesa'.`);
+                }
+                
                 const category = categoryMap.get(categoryName.toLowerCase());
 
-                if (!category || category.type !== transactionType) {
-                    throw new Error(`Categoria "${categoryName}" inválida ou com tipo incorreto.`);
+                if (!category) {
+                    throw new Error(`Categoria "${categoryName}" não encontrada.`);
+                }
+                
+                if (category.type !== 'both' && category.type !== transactionType) {
+                    throw new Error(`Categoria "${categoryName}" não é válida para o tipo "${type}".`);
+                }
+
+                let payeeId: string | undefined = undefined;
+                if (payeeName && payeeName.trim().length > 0) {
+                    payeeId = payeeMap.get(payeeName.toLowerCase());
+                    if (!payeeId) {
+                        throw new Error(`Beneficiário "${payeeName}" não encontrado.`);
+                    }
                 }
                 
                 transactionsToAdd.push({
@@ -58,6 +83,7 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
                     type: transactionType,
                     accountId: selectedAccountId,
                     categoryId: category.id,
+                    payeeId: payeeId,
                 });
 
             } catch (err: any) {
@@ -99,7 +125,7 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
                         onChange={e => setBatchText(e.target.value)}
                         rows={10}
                         className={`${inputClass} font-mono text-xs`}
-                        placeholder="Cole aqui. Formato por linha:&#10;dd/mm/aaaa; Descrição da transação; 150,00; expense; Nome da Categoria&#10;dd/mm/aaaa; Outra descrição; 50,25; income; Outra Categoria"
+                        placeholder="Cole aqui. Formato por linha:&#10;dd/mm/aaaa; Descrição; Valor; tipo; Categoria; [Beneficiário Opcional]&#10;Ex: 25/12/2024; Presente; 50,25; despesa; Lazer; Loja de Brinquedos&#10;Ex: 26/12/2024; Salário; 2500,00; receita; Salário"
                     />
                 </div>
             </div>

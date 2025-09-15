@@ -271,7 +271,17 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
     const isEdit = !!itemId;
     const [loading, setLoading] = useState(isEdit);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [formState, setFormState] = useState<any>({ name: '' });
+    const [formState, setFormState] = useState<any>(() => {
+        if (isEdit) return { name: '' }; // Will be populated by useEffect
+        switch (itemType) {
+            case 'account':
+                return { name: '', initialBalance: 0 };
+            case 'category':
+                return { name: '', type: 'expense' };
+            default:
+                return { name: '' };
+        }
+    });
     const toast = useToast();
 
     const apiMap = useMemo(() => ({
@@ -304,8 +314,14 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
             }
             toast.success(`${label} salv${label.endsWith('a') ? 'a' : 'o'} com sucesso!`);
             setView(returnView);
-        } catch (error) {
-            toast.error(`Erro ao salvar ${label.toLowerCase()}.`);
+        } catch (error: any) {
+            console.error(`Error saving ${label}:`, error);
+            const message = error.message || 'Ocorreu um erro desconhecido.';
+            if (message.includes('unique constraint')) {
+                toast.error(`${label} com este nome já existe.`);
+            } else {
+                toast.error(`Erro ao salvar ${label.toLowerCase()}.`);
+            }
             setIsSubmitting(false);
         }
     };
