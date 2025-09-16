@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ViewState, Transaction, Category } from '../types';
 import { getFinancialReport, categoriesApi } from '../services/api';
-import { ArrowLeft, Paperclip } from './Icons';
+import { ArrowLeft, Paperclip, MessageSquare, ChevronDown } from './Icons';
 import { DateField } from './common/PageLayout';
 
 // --- Helper Functions ---
@@ -27,27 +27,108 @@ const itemVariants: Variants = {
 };
 
 // --- Sub-components ---
-const TransactionCard: React.FC<{ transaction: Transaction, categoryName: string, onViewAttachment: (url: string) => void, onSelect: () => void }> = ({ transaction, categoryName, onViewAttachment, onSelect }) => {
+const TransactionCard: React.FC<{
+    transaction: Transaction,
+    categoryName: string,
+    onViewAttachment: (url: string) => void,
+    onSelect: () => void,
+    expandedDetailType: 'comments' | 'attachment' | undefined,
+    onToggleDetail: (id: string, type: 'comments' | 'attachment') => void
+}> = ({ transaction, categoryName, onViewAttachment, onSelect, expandedDetailType, onToggleDetail }) => {
     const isIncome = transaction.type === 'income';
+    const isExpanded = !!expandedDetailType;
+
     return (
-        <motion.div 
-            variants={itemVariants} 
+        <motion.div
+            layout
             onClick={onSelect}
-            className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border cursor-pointer"
+            className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border cursor-pointer transition-colors hover:bg-muted/50 dark:hover:bg-dark-muted/50"
         >
-            <div className="flex justify-between items-start">
+            <div className="p-4 flex items-start justify-between gap-4">
+                {/* Left side */}
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                        {transaction.attachmentUrl && (
-                            <button type="button" onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }} className="text-muted-foreground hover:text-primary"><Paperclip className="h-4 w-4"/></button>
-                        )}
-                        <p className="font-semibold text-foreground dark:text-dark-foreground truncate">{transaction.description}</p>
+                    <p className="font-bold text-foreground dark:text-dark-foreground break-words">{transaction.description}</p>
+                    <div className="flex items-center gap-x-3 text-sm text-muted-foreground mt-1">
+                        <span>{categoryName}</span>
+                        <span>{formatDate(transaction.date)}</span>
                     </div>
-                    <p className="text-sm text-muted-foreground ml-6">{categoryName}</p>
+
+                    {/* Action Icons Section */}
+                    {(transaction.comments || transaction.attachmentUrl) && (
+                        <div className="mt-2 flex items-center justify-start gap-1">
+                            {transaction.comments && (
+                                <button 
+                                    type="button" 
+                                    onClick={(e) => { e.stopPropagation(); onToggleDetail(transaction.id, 'comments'); }}
+                                    className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${expandedDetailType === 'comments' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}
+                                    aria-label="Ver observações"
+                                >
+                                    <MessageSquare className="h-5 w-5" />
+                                </button>
+                            )}
+                            {transaction.attachmentUrl && (
+                                <button 
+                                    type="button" 
+                                    onClick={(e) => { e.stopPropagation(); onToggleDetail(transaction.id, 'attachment'); }}
+                                    className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${expandedDetailType === 'attachment' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}
+                                    aria-label="Ver anexo"
+                                >
+                                    <Paperclip className="h-5 w-5" />
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
-                <p className={`text-lg font-bold ${isIncome ? 'text-success' : 'text-danger'}`}>{formatCurrency(transaction.amount)}</p>
+
+                {/* Right side */}
+                <div className="text-right flex-shrink-0 space-y-1">
+                    <p className={`text-lg font-bold whitespace-nowrap ${isIncome ? 'text-success' : 'text-danger'}`}>
+                        {isIncome ? '+' : ''}{formatCurrency(transaction.amount)}
+                    </p>
+                    {transaction.runningBalance !== undefined && (
+                        <div className="inline-block bg-muted dark:bg-dark-muted px-2.5 py-1 rounded-md">
+                            <p className="text-sm font-semibold text-muted-foreground dark:text-dark-muted-foreground font-mono">
+                                {formatCurrency(transaction.runningBalance)}
+                            </p>
+                        </div>
+                    )}
+                </div>
             </div>
-            <p className="text-right text-xs text-muted-foreground mt-2">{formatDate(transaction.date)}</p>
+            
+            {/* Expanded Content */}
+            <AnimatePresence>
+                {isExpanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: 'easeInOut' }}
+                        className="overflow-hidden"
+                        onClick={(e) => e.stopPropagation()} 
+                    >
+                        <div className="px-4 pb-4 pt-2 border-t border-border/10 dark:border-dark-border/20">
+                            {expandedDetailType === 'comments' && (
+                                <div className="text-sm text-foreground dark:text-dark-foreground/90 whitespace-pre-wrap">
+                                    <h4 className="font-bold mb-1 text-muted-foreground">Observações:</h4>
+                                    {transaction.comments}
+                                </div>
+                            )}
+                             {expandedDetailType === 'attachment' && (
+                                <div className="text-sm">
+                                     <h4 className="font-bold mb-2 text-muted-foreground">Anexo:</h4>
+                                     <button 
+                                        onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }}
+                                        className="inline-flex items-center gap-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-3 rounded-md hover:bg-muted dark:hover:bg-dark-muted"
+                                     >
+                                        <Paperclip className="h-4 w-4" />
+                                        Ver Comprovante
+                                     </button>
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 };
@@ -62,6 +143,7 @@ const FinancialDetail: React.FC<{
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
+    const [expandedDetails, setExpandedDetails] = useState<Map<string, 'comments' | 'attachment'>>(new Map());
     
     const { startDate: currentMonthStart, endDate: currentMonthEnd } = getCurrentMonthDateRange();
     const [filters, setFilters] = useState(componentState?.filters || { startDate: currentMonthStart, endDate: currentMonthEnd, type: '' as 'income' | 'expense' | '' });
@@ -89,10 +171,31 @@ const FinancialDetail: React.FC<{
 
         setTransactions(reportData);
         setCategories(cats);
+        
+        const initialExpanded = new Map<string, 'comments' | 'attachment'>();
+        reportData.forEach(trx => {
+            if (trx.comments) {
+                initialExpanded.set(trx.id, 'comments');
+            }
+        });
+        setExpandedDetails(initialExpanded);
+
         setLoading(false);
       };
         fetchData();
     }, [filterType, filterId, filters]);
+
+    const handleToggleDetail = (id: string, type: 'comments' | 'attachment') => {
+        setExpandedDetails(prev => {
+            const newMap = new Map(prev);
+            if (newMap.get(id) === type) {
+                newMap.delete(id); // Collapse if clicking the same icon again
+            } else {
+                newMap.set(id, type); // Expand or switch view
+            }
+            return newMap;
+        });
+    };
 
     const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
     const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
@@ -125,11 +228,11 @@ const FinancialDetail: React.FC<{
                 </div>
             </motion.div>
 
-             <motion.div variants={itemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="col-span-3 font-semibold">Filtros Adicionais</div>
+             <motion.div variants={itemVariants} className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="col-span-1 sm:col-span-2 lg:col-span-3 font-semibold">Filtros Adicionais</div>
                  <DateField id="startDate" label="Data Início" value={filters.startDate} onChange={date => setFilters(f => ({ ...f, startDate: date }))} />
                  <DateField id="endDate" label="Data Fim" value={filters.endDate} onChange={date => setFilters(f => ({ ...f, endDate: date }))} />
-                <div>
+                <div className="col-span-1 sm:col-span-2 lg:col-span-1">
                     <label className="block text-xs font-medium text-muted-foreground mb-1.5">Tipo</label>
                     <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value as 'income' | 'expense' | '' }))} className="w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all">
                         <option value="">Todos</option>
@@ -163,6 +266,8 @@ const FinancialDetail: React.FC<{
                                     categoryName={categoryMap.get(t.categoryId) || 'N/A'} 
                                     onSelect={() => setView({ name: 'transaction-form', transactionId: t.id, returnView: currentView })}
                                     onViewAttachment={(url) => setView({ name: 'attachment-view', attachmentUrl: url, returnView: currentView })}
+                                    expandedDetailType={expandedDetails.get(t.id)}
+                                    onToggleDetail={handleToggleDetail}
                                 />)}
                             </motion.div>
                         ) : (

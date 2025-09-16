@@ -61,4 +61,31 @@ alter table public.payable_bills
   add column is_estimate boolean not null default false;
 ```
 
-This script will update your database structure safely, without any data loss, and resolve the error.
+### Error: "column "paid_date" of relation "payments" does not exist"
+
+If you see an error message like `"Falha ao salvar: Could not find the 'paid_date' column..."` or `"column "paid_date" does not exist"`, it means your database schema is missing an update. This can happen if the database doesn't process the schema change and data update in the same command.
+
+**To fix this**, please run the following SQL scripts in your Supabase project's SQL Editor. **You must run them as two separate queries, one after the other.**
+
+1.  Go to your Supabase project dashboard and navigate to the **SQL Editor**.
+2.  Click **+ New query**, paste **Script 1**, and click **RUN**.
+3.  After it succeeds, click **+ New query** again, paste **Script 2**, and click **RUN**.
+
+**Script 1: Add the column**
+```sql
+-- Adds the column for the effective payment date to the payments table.
+ALTER TABLE public.payments
+  ADD COLUMN paid_date date NULL;
+```
+
+**Script 2: Update existing data**
+```sql
+-- Backfills the new `paid_date` column for existing payments that are already
+-- linked to a transaction, ensuring data consistency.
+UPDATE public.payments p
+SET paid_date = t.date
+FROM public.transactions t
+WHERE p.transaction_id = t.id;
+```
+
+This two-step process ensures the database schema is correctly updated before the data is backfilled, resolving the error.

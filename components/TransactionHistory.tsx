@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ViewState, Transaction, Category, Tag, Project, Account } from '../types';
 import { getFinancialReport, categoriesApi, tagsApi, projectsApi, accountsApi, getAccountHistory } from '../services/api';
-import { ArrowLeft, Paperclip, ChevronDown } from './Icons';
+import { ArrowLeft, Paperclip, ChevronDown, MessageSquare } from './Icons';
 import { DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -24,41 +25,109 @@ const FilterInput: React.FC<{ label: string, children: React.ReactNode }> = ({ l
     </div>
 );
 
-const TransactionCard: React.FC<{ transaction: Transaction, categoryName: string, onViewAttachment: (url: string) => void, onSelect: () => void }> = ({ transaction, categoryName, onViewAttachment, onSelect }) => {
+const TransactionCard: React.FC<{
+    transaction: Transaction,
+    categoryName: string,
+    onViewAttachment: (url: string) => void,
+    onSelect: () => void,
+    expandedTransaction: { id: string; type: 'comments' | 'attachment' } | null,
+    onToggleDetail: (id: string, type: 'comments' | 'attachment') => void
+}> = ({ transaction, categoryName, onViewAttachment, onSelect, expandedTransaction, onToggleDetail }) => {
     const isIncome = transaction.type === 'income';
+    const isExpanded = expandedTransaction?.id === transaction.id;
+
     return (
-        <div
+        <motion.div
+            layout
             onClick={onSelect}
-            className="bg-card dark:bg-dark-card p-4 rounded-lg border border-border dark:border-dark-border cursor-pointer flex items-center justify-between gap-4 transition-colors hover:bg-muted/50 dark:hover:bg-dark-muted/50"
+            className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border cursor-pointer transition-colors hover:bg-muted/50 dark:hover:bg-dark-muted/50"
         >
-            {/* Left side: Description, category, date */}
-            <div className="flex-1 min-w-0 flex items-center gap-3">
-                 {transaction.attachmentUrl && (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }} className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full transition-all bg-muted/50 dark:bg-dark-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Paperclip className="h-5 w-5"/></button>
-                )}
-                <div>
+            <div className="p-4 flex items-start justify-between gap-4">
+                {/* Left side */}
+                <div className="flex-1 min-w-0">
                     <p className="font-bold text-foreground dark:text-dark-foreground break-words">{transaction.description}</p>
-                    <div className={`flex items-center gap-x-3 text-sm text-muted-foreground mt-1`}>
+                    <div className="flex items-center gap-x-3 text-sm text-muted-foreground mt-1">
                         <span>{categoryName}</span>
                         <span>{formatDate(transaction.date)}</span>
                     </div>
+                    
+                    {/* Action Icons Section */}
+                    {(transaction.comments || transaction.attachmentUrl) && (
+                        <div className="mt-2 flex items-center justify-start gap-1">
+                            {transaction.comments && (
+                                <button 
+                                    type="button" 
+                                    onClick={(e) => { e.stopPropagation(); onToggleDetail(transaction.id, 'comments'); }}
+                                    className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${expandedTransaction?.type === 'comments' && isExpanded ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}
+                                    aria-label="Ver observações"
+                                >
+                                    <MessageSquare className="h-5 w-5" />
+                                </button>
+                            )}
+                            {transaction.attachmentUrl && (
+                                <button 
+                                    type="button" 
+                                    onClick={(e) => { e.stopPropagation(); onToggleDetail(transaction.id, 'attachment'); }}
+                                    className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${expandedTransaction?.type === 'attachment' && isExpanded ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}`}
+                                    aria-label="Ver anexo"
+                                >
+                                    <Paperclip className="h-5 w-5" />
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Right side */}
+                <div className="text-right flex-shrink-0 space-y-1">
+                    <p className={`text-lg font-bold whitespace-nowrap ${isIncome ? 'text-success' : 'text-danger'}`}>
+                        {isIncome ? '+' : ''}{formatCurrency(transaction.amount)}
+                    </p>
+                    {transaction.runningBalance !== undefined && (
+                        <div className="inline-block bg-muted dark:bg-dark-muted px-2.5 py-1 rounded-md">
+                            <p className="text-sm font-semibold text-muted-foreground dark:text-dark-muted-foreground font-mono">
+                                {formatCurrency(transaction.runningBalance)}
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
-
-            {/* Right side: Amount and Running Balance */}
-            <div className="text-right flex-shrink-0 space-y-1">
-                <p className={`text-lg font-bold whitespace-nowrap ${isIncome ? 'text-success' : 'text-danger'}`}>
-                    {isIncome ? '+' : ''}{formatCurrency(transaction.amount)}
-                </p>
-                {transaction.runningBalance !== undefined && (
-                    <div className="inline-block bg-muted dark:bg-dark-muted px-2.5 py-1 rounded-md">
-                        <p className="text-sm font-semibold text-muted-foreground dark:text-dark-muted-foreground font-mono">
-                            {formatCurrency(transaction.runningBalance)}
-                        </p>
-                    </div>
+            
+            {/* Expanded Content */}
+            <AnimatePresence>
+                {isExpanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: 'easeInOut' }}
+                        className="overflow-hidden"
+                        onClick={(e) => e.stopPropagation()} 
+                    >
+                        <div className="px-4 pb-4 pt-2 border-t border-border/10 dark:border-dark-border/20">
+                            {expandedTransaction.type === 'comments' && (
+                                <div className="text-sm text-foreground dark:text-dark-foreground/90 whitespace-pre-wrap">
+                                    <h4 className="font-bold mb-1 text-muted-foreground">Observações:</h4>
+                                    {transaction.comments}
+                                </div>
+                            )}
+                             {expandedTransaction.type === 'attachment' && (
+                                <div className="text-sm">
+                                     <h4 className="font-bold mb-2 text-muted-foreground">Anexo:</h4>
+                                     <button 
+                                        onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }}
+                                        className="inline-flex items-center gap-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-3 rounded-md hover:bg-muted dark:hover:bg-dark-muted"
+                                     >
+                                        <Paperclip className="h-4 w-4" />
+                                        Ver Comprovante
+                                     </button>
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
                 )}
-            </div>
-        </div>
+            </AnimatePresence>
+        </motion.div>
     );
 };
 
@@ -76,6 +145,7 @@ export const TransactionHistory: React.FC<{
     const [filterData, setFilterData] = useState<{ categories: Category[], tags: Tag[], projects: Project[] }>({ categories: [], tags: [], projects: [] });
     const [selectedAccountId, setSelectedAccountId] = useState(accountId || 'all');
     const toast = useToast();
+    const [expandedTransaction, setExpandedTransaction] = useState<{ id: string; type: 'comments' | 'attachment' } | null>(null);
     
     const { startDate: currentMonthStart, endDate: currentMonthEnd } = getCurrentMonthDateRange();
     const [filters, setFilters] = useState(() => {
@@ -143,6 +213,15 @@ export const TransactionHistory: React.FC<{
       fetchTransactions();
     }, [selectedAccountId, filters, allAccounts, toast]);
     
+    const handleToggleDetail = (id: string, type: 'comments' | 'attachment') => {
+        setExpandedTransaction(prev => {
+            if (prev?.id === id && prev?.type === type) {
+                return null; // Collapse if clicking the same icon again
+            }
+            return { id, type }; // Expand or switch view
+        });
+    };
+
     const totalIncome = useMemo(() => transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0), [transactions]);
     const totalExpense = useMemo(() => transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0), [transactions]);
 
@@ -248,6 +327,8 @@ export const TransactionHistory: React.FC<{
                                     categoryName={categoryMap.get(t.categoryId) || 'N/A'}
                                     onSelect={() => setView({ name: 'transaction-form', transactionId: t.id, returnView: currentView })}
                                     onViewAttachment={(url) => setView({ name: 'attachment-view', attachmentUrl: url, returnView: currentView })}
+                                    expandedTransaction={expandedTransaction}
+                                    onToggleDetail={handleToggleDetail}
                                 />
                             ))}
                         </div>

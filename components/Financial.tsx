@@ -712,7 +712,7 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
             }));
 
             // Separate user comments from previously auto-generated ones
-            const oldAutoCommentRegex = /Pagamento referente às mensalidades de: .*/g;
+            const oldAutoCommentRegex = /Pagamento referente às mensalidades de:[\s\S]*/g;
             const userComments = (formState.comments || '').replace(oldAutoCommentRegex, '').trim();
             
             let finalComments = userComments;
@@ -722,12 +722,13 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                 const memberMap = new Map(membersWithDues.map(m => [m.id, m.name]));
                 const details = paymentLinks.map(link => {
                     const memberName = memberMap.get(link.memberId) || 'Membro desconhecido';
-                    const monthName = new Date(link.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+                    const rawMonthName = new Date(link.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+                    const monthName = rawMonthName.charAt(0).toUpperCase() + rawMonthName.slice(1);
                     const amount = formatCurrency(link.amount);
-                    return `${memberName} (${monthName} - ${amount})`;
-                }).join(', ');
+                    return `${memberName}\n${monthName}\n${amount}`;
+                }).join('\n\n');
 
-                const generatedComment = `Pagamento referente às mensalidades de: ${details}.`;
+                const generatedComment = `Pagamento referente às mensalidades de:\n${details}`;
                 
                 // Combine user's original comments with the new auto-generated one
                 finalComments = [userComments, generatedComment].filter(Boolean).join('\n\n');
