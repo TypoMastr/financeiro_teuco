@@ -268,7 +268,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
     visible: { y: 0, opacity: 1, transition: { ease: "easeOut", duration: 0.4 } },
   };
   
-  const selectClass = "w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+  const selectClass = "w-full text-base p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
   const aiSummaryPrompt = `
       Você é um assistente financeiro. Analise a lista de membros em JSON e forneça um resumo conciso sobre a situação das mensalidades.
@@ -277,7 +277,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
       2. Quantos membros estão com pagamentos pendentes ('Atrasado').
       3. O valor total somado de todas as pendências (some o campo 'totalDue' dos membros pendentes).
       4. Mencione se há membros notáveis, como isentos ('Isento') ou em licença ('Em Licença').
-      Seja breve e amigável. Use negrito para números e valores importantes.
+      Seja breve e amigável. Use negrito para números e valores.
   `;
 
   return (
@@ -352,7 +352,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
                  <select
                     value={filters.activity}
                     onChange={(e) => handleActivityFilterChange(e.target.value)}
-                    className="w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
+                    className="w-full text-base p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
                  >
                     <option value="Ativo">Membros Ativos</option>
                     <option value="OnLeave">Em Licença</option>
@@ -364,7 +364,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
                  <select
                     value={filters.status}
                     onChange={(e) => setListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
-                    className="w-full text-sm p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
+                    className="w-full text-base p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
                  >
                     <option value="all">Todos Pagamentos</option>
                     <option value={PaymentStatus.Atrasado}>Pag. Pendentes</option>

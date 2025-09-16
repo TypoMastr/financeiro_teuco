@@ -127,7 +127,7 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-    const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+    const inputClass = "w-full text-base p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl mx-auto">
@@ -191,7 +191,7 @@ export const OfxImportFormPage: React.FC<{ viewState: ViewState, setView: (view:
     if (loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
     const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-    const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+    const inputClass = "w-full text-base p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
     return (
         <div className="space-y-6 max-w-2xl mx-auto">

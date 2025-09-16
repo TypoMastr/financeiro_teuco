@@ -328,7 +328,7 @@ export const SettingsItemFormPage: React.FC<{ viewState: ViewState, setView: (vi
     
     if(loading) return <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
 
-    const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+    const inputClass = "w-full text-base p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-lg mx-auto">

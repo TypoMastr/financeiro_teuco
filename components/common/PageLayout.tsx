@@ -126,7 +126,7 @@ export const DateField: React.FC<DateFieldProps> = ({ id, label, value, onChange
   };
   
   const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-  const inputClass = "w-full text-sm p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
+  const inputClass = "w-full text-base p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
 
   return (
     <div>
