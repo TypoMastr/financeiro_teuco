@@ -581,61 +581,63 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
     
                 Nova Entrada do Usuário: "${formState.description}"
     
-                Analise a entrada e retorne um objeto JSON.
+                Análise a entrada e retorne uma série de objetos JSON, um por linha, para cada campo que você identificar.
+                Cada JSON DEVE ter a estrutura: {"field": "nomeDoCampo", "value": "valorDoCampo"}.
+                Os campos possíveis para "field" são: "standardizedDescription", "amount", "date", "categoryId", "accountId", "payeeId", "comments", "billId".
+                Comece a enviar os campos assim que os identificar.
             `;
             
-            const responseSchema = {
-                type: Type.OBJECT,
-                properties: {
-                    standardizedDescription: { type: Type.STRING, description: 'Descrição limpa e padronizada (ex: "Conta de Luz - Setembro/2024").' },
-                    amount: { type: Type.NUMBER, description: 'Valor numérico.' },
-                    date: { type: Type.STRING, description: 'Data no formato AAAA-MM-DD.' },
-                    categoryId: { type: Type.STRING, description: 'ID da categoria correspondente, ou null.' },
-                    accountId: { type: Type.STRING, description: 'ID da conta correspondente, ou null.' },
-                    payeeId: { type: Type.STRING, description: 'ID do beneficiário correspondente, ou null.' },
-                    comments: { type: Type.STRING, description: 'Um resumo explicativo da transação para referência futura.' },
-                    billId: { type: Type.STRING, description: 'ID da conta a pagar correspondente, ou null.' },
+            const responseStream = await ai.models.generateContentStream({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+            });
+    
+            let accumulatedText = '';
+            let processedFields = new Set();
+    
+            const processLine = async (line: string) => {
+                if (line.trim() === '') return;
+                try {
+                    const update = JSON.parse(line);
+                    const { field, value } = update;
+    
+                    if (processedFields.has(field)) return;
+                    processedFields.add(field);
+    
+                    await new Promise(resolve => setTimeout(resolve, 150));
+    
+                    if (field === 'billId' && value && linkableBills.some(b => b.id === value)) {
+                        handleBillLinkChange(value);
+                        const matchedBill = linkableBills.find(b => b.id === value)!;
+                        toast.success(`Conta "${matchedBill.description}" vinculada pela IA!`);
+                    } else if (field === 'amount') {
+                        setFormState(prev => ({ ...prev, amount: value }));
+                        setAmountStr(formatCurrencyForInput(value));
+                    } else if (field === 'standardizedDescription') {
+                        setFormState(prev => ({ ...prev, description: value }));
+                    } else if (field === 'date' || field === 'categoryId' || field === 'accountId' || field === 'payeeId' || field === 'comments') {
+                        setFormState(prev => ({ ...prev, [field]: value }));
+                    }
+                } catch (e) {
+                    console.warn("Could not parse streamed JSON line:", line, e);
                 }
             };
     
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-                config: { responseMimeType: "application/json", responseSchema },
-            });
+            for await (const chunk of responseStream) {
+                accumulatedText += chunk.text;
+                const lines = accumulatedText.split('\n');
+                accumulatedText = lines.pop() || '';
     
-            const result = JSON.parse(response.text);
-
-            if (result.billId && linkableBills.some(b => b.id === result.billId)) {
-                handleBillLinkChange(result.billId); // Sets bill's data first
-                const matchedBill = linkableBills.find(b => b.id === result.billId)!;
-                
-                // Now, override with AI-extracted values
-                setFormState(prev => ({
-                    ...prev,
-                    description: result.standardizedDescription || prev.description, // Use AI description
-                    amount: result.amount || prev.amount, // Use AI amount
-                    date: result.date || prev.date,
-                    comments: result.comments || prev.comments,
-                    accountId: result.accountId || prev.accountId, 
-                }));
-                setAmountStr(formatCurrencyForInput(result.amount || matchedBill.amount));
-                toast.success(`Conta "${matchedBill.description}" vinculada pela IA!`);
-
-            } else {
-                setFormState(prev => ({
-                    ...prev,
-                    description: result.standardizedDescription || prev.description,
-                    amount: result.amount || prev.amount,
-                    date: result.date || prev.date,
-                    categoryId: result.categoryId || prev.categoryId,
-                    accountId: result.accountId || prev.accountId,
-                    payeeId: result.payeeId || prev.payeeId,
-                    comments: result.comments || prev.comments,
-                }));
-                setAmountStr(formatCurrencyForInput(result.amount || formState.amount));
-                toast.success("Formulário preenchido pela IA!");
+                for (const line of lines) {
+                    await processLine(line);
+                }
             }
+    
+            if (accumulatedText.trim()) {
+                await processLine(accumulatedText);
+            }
+            
+            toast.success("Formulário preenchido pela IA!");
     
         } catch (error) {
             console.error("AI form fill error:", error);
