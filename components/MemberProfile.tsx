@@ -4,7 +4,7 @@ import { Member, Payment, Transaction, ViewState, Account, ActivityStatus, Leave
 // FIX: Import missing functions from api.ts.
 import { getMemberById, getPaymentsByMember, deletePayment, addIncomeTransactionAndPayment, accountsApi, getPaymentDetails, updatePaymentAndTransaction, leavesApi } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle, Briefcase, Info } from './Icons';
+import { ArrowLeft, Edit, Mail, Phone, Calendar, DollarSign, ChevronDown, Paperclip, MessageSquare, Trash, X as XIcon, Save, ClipboardPaste, AlertTriangle, Briefcase, Info, Receipt } from './Icons';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -442,6 +442,16 @@ const MemberProfile: React.FC<{ viewState: ViewState; setView: (view: ViewState)
                                                                     </div>
                                                                     {payment ? (
                                                                         <div className="flex items-center gap-2 flex-shrink-0">
+                                                                            {payment.transactionId && (
+                                                                                <motion.button
+                                                                                    onClick={() => setView({ name: 'transaction-view', transactionId: payment.transactionId!, returnView: currentView })}
+                                                                                    aria-label="Ver transação"
+                                                                                    className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
+                                                                                    whileTap={{ scale: 0.9 }}
+                                                                                >
+                                                                                    <Receipt className="h-5 w-5" />
+                                                                                </motion.button>
+                                                                            )}
                                                                             <motion.button
                                                                                 onClick={() => setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}
                                                                                 aria-label="Editar pagamento"

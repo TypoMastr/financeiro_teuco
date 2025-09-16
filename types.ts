@@ -178,6 +178,7 @@ export type ViewState =
   | { name: 'payment-form', id: string, month: string, returnView: ViewState }
   | { name: 'edit-payment-form', id: string, paymentId: string, returnView: ViewState }
   | { name: 'transaction-form', transactionId?: string, returnView?: ViewState }
+  | { name: 'transaction-view', transactionId: string, returnView: ViewState }
   | { name: 'financial-report-form', returnView: ViewState }
   | { name: 'future-income-view', returnView: ViewState }
   | { name: 'setting-list', itemType: ItemType, returnView?: ViewState }
