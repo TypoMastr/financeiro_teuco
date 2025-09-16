@@ -457,10 +457,13 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
         attachmentUrl: '', attachmentFilename: '', payableBillId: undefined as string | undefined
     });
     const [amountStr, setAmountStr] = useState('R$ 0,00');
-
-    const [isPayment, setIsPayment] = useState(false);
-    const [paymentLink, setPaymentLink] = useState({ memberId: '', referenceMonth: '' });
+    
+    // States for payment linking
     const [allMembers, setAllMembers] = useState<Member[]>([]);
+    const [initialPaymentLink, setInitialPaymentLink] = useState<{ memberId: string; referenceMonth: string } | null>(null);
+    const [selectedMemberId, setSelectedMemberId] = useState('');
+    const [selectedMonth, setSelectedMonth] = useState('');
+
 
     const [data, setData] = useState<{ accounts: Account[], categories: Category[], payees: Payee[], tags: Tag[], projects: Project[], bills: PayableBill[] }>({
         accounts: [], categories: [], payees: [], tags: [], projects: [], bills: []
@@ -472,8 +475,8 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
 
     const formatCurrencyForInput = (value: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
     const parseCurrencyFromInput = (formattedValue: string): number => {
-        const numericString = formattedValue.replace(/[R$\s.]/g, '').replace(',', '.');
-        return parseFloat(numericString) || 0;
+        const numericString = formattedValue.replace(/\D/g, '');
+        return numericString ? parseInt(numericString, 10) / 100 : 0;
     };
     
     const filteredCategories = useMemo(() => data.categories.filter(c => c.type === formState.type || c.type === 'both'), [data.categories, formState.type]);
@@ -483,6 +486,27 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
             .filter(b => b.status !== 'paid' || !b.transactionId)
             .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     }, [data.bills]);
+
+    const availableMonthsForSelectedMember = useMemo(() => {
+        if (!selectedMemberId) return [];
+        const member = allMembers.find(m => m.id === selectedMemberId);
+        if (!member) return [];
+
+        const overdue = member.overdueMonths.map(m => ({
+            value: m.month,
+            label: new Date(m.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+        }));
+
+        if (initialPaymentLink && initialPaymentLink.memberId === selectedMemberId) {
+            if (!overdue.some(m => m.value === initialPaymentLink.referenceMonth)) {
+                overdue.unshift({
+                    value: initialPaymentLink.referenceMonth,
+                    label: `(Pago) ${new Date(initialPaymentLink.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`
+                });
+            }
+        }
+        return overdue;
+    }, [selectedMemberId, allMembers, initialPaymentLink]);
     
     const handleBillLinkChange = (billId: string) => {
         setLinkedBillId(billId);
@@ -624,11 +648,11 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            const [accs, cats, pys, tgs, projs, members, billsData] = await Promise.all([
+            const [accs, cats, pys, tgs, projs, membersData, billsData] = await Promise.all([
                 accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), getMembers(), payableBillsApi.getAll()
             ]);
             setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs, bills: billsData });
-            setAllMembers(members.filter(m => m.activityStatus === 'Ativo'));
+            setAllMembers(membersData);
             
             if (isEdit && transactionId) {
                 const transactions = await transactionsApi.getAll();
@@ -646,8 +670,9 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                     
                     const payment = await getPaymentByTransactionId(trx.id);
                     if (payment) {
-                        setIsPayment(true);
-                        setPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
+                        setInitialPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
+                        setSelectedMemberId(payment.memberId);
+                        setSelectedMonth(payment.referenceMonth);
                     }
                 }
             } else if (accs.length > 0) {
@@ -702,11 +727,12 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                 if (warning) toast.info(warning);
                 toast.success('Transação adicionada e conta paga com sucesso!');
             } else if (isEdit && transactionId) {
-                if (isPayment) {
-                    await updateTransactionAndPaymentLink(transactionId, payload, paymentLink);
-                } else {
-                    await transactionsApi.update(transactionId, payload);
-                }
+                const { warning } = await transactionsApi.update(transactionId, payload);
+                if (warning) toast.info(warning);
+
+                const newLinkData = selectedMemberId && selectedMonth ? { memberId: selectedMemberId, referenceMonth: selectedMonth } : null;
+                await transactionsApi.setPaymentLink(transactionId, newLinkData, payload);
+                
                 toast.success('Transação atualizada com sucesso!');
             } else {
                 await transactionsApi.add(payload as any);
@@ -775,6 +801,32 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                             <option value="">Nenhum</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
                     </div>
+
+                    {isEdit && formState.type === 'income' && (
+                        <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
+                             <label className="text-sm font-semibold text-primary">Vincular a Mensalidade</label>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className={labelClass}>Membro</label>
+                                    <select value={selectedMemberId} onChange={e => { setSelectedMemberId(e.target.value); setSelectedMonth(''); }} className={inputClass}>
+                                        <option value="">Receita Avulsa</option>
+                                        {allMembers
+                                            .filter(m => m.totalDue > 0 || m.id === initialPaymentLink?.memberId)
+                                            .sort((a,b) => a.name.localeCompare(b.name))
+                                            .map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    </select>
+                                </div>
+                                 <div>
+                                    <label className={labelClass}>Mês Pendente</label>
+                                    <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} disabled={!selectedMemberId} className={`${inputClass} disabled:bg-muted/50 dark:disabled:bg-dark-muted/50`}>
+                                        <option value="">Selecione o mês...</option>
+                                        {availableMonthsForSelectedMember.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                    </select>
+                                </div>
+                             </div>
+                        </div>
+                    )}
+                    
                     {formState.type === 'expense' && (
                         <div>
                             <label className={labelClass}>Vincular a Conta a Pagar (Opcional)</label>
@@ -786,15 +838,6 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                                     </option>
                                 ))}
                             </select>
-                        </div>
-                    )}
-                    { isPayment && (
-                        <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
-                            <p className="text-sm font-semibold text-primary">Vinculado ao pagamento de mensalidade:</p>
-                            <div className="text-sm">
-                                <p><strong>Membro:</strong> {allMembers.find(m => m.id === paymentLink.memberId)?.name}</p>
-                                <p><strong>Mês Ref:</strong> {new Date(paymentLink.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</p>
-                            </div>
                         </div>
                     )}
                      <div><label className={labelClass}>Observações</label><textarea value={formState.comments} onChange={e => setFormState(f => ({...f, comments: e.target.value}))} className={inputClass} rows={2}/></div>

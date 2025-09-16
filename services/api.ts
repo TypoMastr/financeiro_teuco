@@ -252,7 +252,7 @@ const cleanTransactionDataForSupabase = (transactionData: any) => {
 
 // --- BUSINESS LOGIC ---
 const getUTCDateFromStr = (dateStr: string): Date => {
-    if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr.slice(0, 10))) {
         return new Date(NaN); // Retorna uma data inválida
     }
     const datePart = dateStr.slice(0, 10);
@@ -1039,6 +1039,54 @@ export const transactionsApi = {
         const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
         if (error) throw error;
         await addLogEntry(`Removida transação: "${oldData.description}"`, 'delete', 'transaction', oldData);
+    },
+    setPaymentLink: async (
+        transactionId: string,
+        linkData: { memberId: string; referenceMonth: string } | null,
+        transaction: Pick<Transaction, 'amount' | 'date' | 'comments' | 'attachmentUrl' | 'attachmentFilename'>
+    ) => {
+        const { data: existingPayment, error: findError } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('transaction_id', transactionId)
+            .maybeSingle();
+        
+        if (findError) throw findError;
+
+        if (linkData) { // User wants to link or change the link
+            const paymentPayload = {
+                member_id: linkData.memberId,
+                reference_month: linkData.referenceMonth,
+                amount: transaction.amount,
+                payment_date: transaction.date,
+                comments: transaction.comments,
+                attachment_url: transaction.attachmentUrl,
+                attachment_filename: transaction.attachmentFilename,
+                transaction_id: transactionId,
+            };
+
+            if (existingPayment) { // Update existing payment link
+                const { error: updateError } = await supabase.from('payments').update(paymentPayload).eq('id', existingPayment.id);
+                if (updateError) throw updateError;
+                const lookupData = await getLookupData();
+                const memberName = lookupData.members.get(linkData.memberId) || 'desconhecido';
+                await addLogEntry(`Vínculo de pagamento alterado para "${memberName}" ref. ${linkData.referenceMonth}.`, 'update', 'payment', existingPayment);
+
+            } else { // Create new payment link
+                const { data: newPayment, error: insertError } = await supabase.from('payments').insert(paymentPayload).select().single();
+                if (insertError) throw insertError;
+                const lookupData = await getLookupData();
+                const memberName = lookupData.members.get(linkData.memberId) || 'desconhecido';
+                await addLogEntry(`Pagamento de "${memberName}" ref. ${linkData.referenceMonth} vinculado à transação.`, 'create', 'payment', { id: newPayment.id });
+            }
+
+        } else if (existingPayment) { // User wants to unlink
+            const { error: deleteError } = await supabase.from('payments').delete().eq('id', existingPayment.id);
+            if (deleteError) throw deleteError;
+            const lookupData = await getLookupData();
+            const memberName = lookupData.members.get(existingPayment.member_id) || 'desconhecido';
+            await addLogEntry(`Pagamento de "${memberName}" ref. ${existingPayment.reference_month} desvinculado da transação.`, 'delete', 'payment', existingPayment);
+        }
     },
 };
 

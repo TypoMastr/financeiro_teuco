@@ -34,16 +34,26 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
         setIsSubmitting(true);
         const lines = batchText.split('\n').filter(line => line.trim() !== '');
         const transactionsToAdd = [];
-        const categoryMap = new Map(categories.map(c => [c.name.toLowerCase(), c]));
+        
+        // Use a mutable copy of categories, so we can add the default one if created
+        let localCategories = [...categories];
+        let categoryMap = new Map(localCategories.map(c => [c.name.toLowerCase(), c]));
+        let uncategorizedCategory: Category | null = localCategories.find(c => c.name.toLowerCase() === 'sem categoria') || null;
+
         const payeeMap = new Map(payees.map(p => [p.name.toLowerCase(), p.id]));
 
         for (const line of lines) {
             try {
-                const [date, description, amount, type, categoryName, payeeName] = line.split(';').map(s => s.trim());
-                if (!date || !description || !amount || !type || !categoryName) {
-                    throw new Error('Formato incorreto. Campos obrigatórios faltando.');
+                const parts = line.split(';').map(s => s.trim());
+                const [date, description, amount, type, categoryName = '', payeeName = ''] = parts;
+
+                if (!date || !description || !amount || !type) {
+                    throw new Error('Formato incorreto. Campos obrigatórios (data, descrição, valor, tipo) faltando.');
                 }
                 const [day, month, year] = date.split('/');
+                if (!day || !month || !year || isNaN(parseInt(day)) || isNaN(parseInt(month)) || isNaN(parseInt(year))) {
+                    throw new Error(`Data "${date}" inválida. Use o formato dd/mm/aaaa.`);
+                }
                 const isoDate = new Date(`${year}-${month}-${day}T12:00:00Z`).toISOString();
                 const numericAmount = parseFloat(amount.replace(',', '.'));
                 
@@ -58,7 +68,18 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
                     throw new Error(`Tipo "${type}" inválido. Use 'receita' ou 'despesa'.`);
                 }
                 
-                const category = categoryMap.get(categoryName.toLowerCase());
+                let category: Category | undefined | null;
+                if (!categoryName) {
+                    if (!uncategorizedCategory) {
+                        console.log("Creating 'Sem Categoria' category...");
+                        uncategorizedCategory = await categoriesApi.add({ name: 'Sem Categoria', type: 'both' });
+                        localCategories.push(uncategorizedCategory);
+                        categoryMap.set('sem categoria', uncategorizedCategory);
+                    }
+                    category = uncategorizedCategory;
+                } else {
+                    category = categoryMap.get(categoryName.toLowerCase());
+                }
 
                 if (!category) {
                     throw new Error(`Categoria "${categoryName}" não encontrada.`);
@@ -125,7 +146,7 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
                         onChange={e => setBatchText(e.target.value)}
                         rows={10}
                         className={`${inputClass} font-mono text-xs`}
-                        placeholder="Cole aqui. Formato por linha:&#10;dd/mm/aaaa; Descrição; Valor; tipo; Categoria; [Beneficiário Opcional]&#10;Ex: 25/12/2024; Presente; 50,25; despesa; Lazer; Loja de Brinquedos&#10;Ex: 26/12/2024; Salário; 2500,00; receita; Salário"
+                        placeholder="Cole aqui. Formato por linha:&#10;dd/mm/aaaa; Descrição; Valor; tipo; [Categoria]; [Beneficiário]&#10;Ex: 25/12/2024; Presente; 50,25; despesa; Lazer; Loja de Brinquedos&#10;Ex: 26/12/2024; Salário; 2500,00; receita; Salário;&#10;Ex: 27/12/2024; Uber; 15,80; despesa; ; Uber App"
                     />
                 </div>
             </div>
