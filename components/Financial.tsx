@@ -4,12 +4,12 @@ import { ViewState, Account, Category, Payee, Tag, Project, Transaction, ReportD
 import { 
     accountsApi, categoriesApi, payeesApi, tagsApi, projectsApi, transactionsApi, 
     getAccountsWithBalance, getFinancialReport, getFutureIncomeTransactions, 
-    updateTransactionAndPaymentLink, getPaymentByTransactionId, getMembers,
+    getPaymentByTransactionId, getMembers, getPaymentsByTransaction,
     payableBillsApi, getDashboardStats, payBillWithTransactionData
 } from '../services/api';
 import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
-import { DollarSign, TrendingUp, TrendingDown, PlusCircle, Filter, FileText, ChevronRight, Briefcase, Paperclip, ClipboardPaste, Users, PieChart, Layers, Tag as TagIcon, Wallet, History, Sparkles, LoadingSpinner, AlertTriangle, Trash } from './Icons';
+import { DollarSign, TrendingUp, TrendingDown, PlusCircle, Filter, FileText, ChevronRight, Briefcase, Paperclip, ClipboardPaste, Users, PieChart, Layers, Tag as TagIcon, Wallet, History, Sparkles, LoadingSpinner, AlertTriangle, Trash, Check, ChevronsUpDown } from './Icons';
 import { AISummary } from './AISummary';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -458,12 +458,11 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
     });
     const [amountStr, setAmountStr] = useState('R$ 0,00');
     
-    // States for payment linking
-    const [allMembers, setAllMembers] = useState<Member[]>([]);
-    const [initialPaymentLink, setInitialPaymentLink] = useState<{ memberId: string; referenceMonth: string } | null>(null);
-    const [selectedMemberId, setSelectedMemberId] = useState('');
-    const [selectedMonth, setSelectedMonth] = useState('');
-
+    // States for multiple payment linking
+    const [membersWithDues, setMembersWithDues] = useState<Member[]>([]);
+    const [selectedPayments, setSelectedPayments] = useState<Map<string, { memberId: string, amount: number }>>(new Map());
+    const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
+    const [isLinkingPayments, setIsLinkingPayments] = useState(false);
 
     const [data, setData] = useState<{ accounts: Account[], categories: Category[], payees: Payee[], tags: Tag[], projects: Project[], bills: PayableBill[] }>({
         accounts: [], categories: [], payees: [], tags: [], projects: [], bills: []
@@ -487,27 +486,6 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
             .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     }, [data.bills]);
 
-    const availableMonthsForSelectedMember = useMemo(() => {
-        if (!selectedMemberId) return [];
-        const member = allMembers.find(m => m.id === selectedMemberId);
-        if (!member) return [];
-
-        const overdue = member.overdueMonths.map(m => ({
-            value: m.month,
-            label: new Date(m.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-        }));
-
-        if (initialPaymentLink && initialPaymentLink.memberId === selectedMemberId) {
-            if (!overdue.some(m => m.value === initialPaymentLink.referenceMonth)) {
-                overdue.unshift({
-                    value: initialPaymentLink.referenceMonth,
-                    label: `(Pago) ${new Date(initialPaymentLink.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`
-                });
-            }
-        }
-        return overdue;
-    }, [selectedMemberId, allMembers, initialPaymentLink]);
-    
     const handleBillLinkChange = (billId: string) => {
         setLinkedBillId(billId);
         if (billId) {
@@ -654,7 +632,7 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                 accountsApi.getAll(), categoriesApi.getAll(), payeesApi.getAll(), tagsApi.getAll(), projectsApi.getAll(), getMembers(), payableBillsApi.getAll()
             ]);
             setData({ accounts: accs, categories: cats, payees: pys, tags: tgs, projects: projs, bills: billsData });
-            setAllMembers(membersData);
+            setMembersWithDues(membersData.filter(m => m.totalDue > 0).sort((a,b) => a.name.localeCompare(b.name)));
             
             if (isEdit && transactionId) {
                 const transactions = await transactionsApi.getAll();
@@ -670,11 +648,15 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                     setAmountStr(formatCurrencyForInput(trx.amount));
                     if(trx.payableBillId) setLinkedBillId(trx.payableBillId);
                     
-                    const payment = await getPaymentByTransactionId(trx.id);
-                    if (payment) {
-                        setInitialPaymentLink({ memberId: payment.memberId, referenceMonth: payment.referenceMonth });
-                        setSelectedMemberId(payment.memberId);
-                        setSelectedMonth(payment.referenceMonth);
+                    const payments = await getPaymentsByTransaction(trx.id);
+                    if (payments && payments.length > 0) {
+                        const initialSelected = new Map();
+                        payments.forEach(p => {
+                            const key = `${p.memberId}_${p.referenceMonth}`;
+                            initialSelected.set(key, { memberId: p.memberId, amount: p.amount });
+                        });
+                        setSelectedPayments(initialSelected);
+                        setIsLinkingPayments(true);
                     }
                 }
             } else if (accs.length > 0) {
@@ -722,23 +704,62 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const payload = { ...formState, date: new Date(formState.date + 'T12:00:00Z').toISOString() };
+            // New logic to generate/update comment based on linked payments
+            const paymentLinks = Array.from(selectedPayments.values()).map(p => ({
+                memberId: p.memberId,
+                referenceMonth: Array.from(selectedPayments.keys()).find(key => selectedPayments.get(key) === p)!.split('_')[1],
+                amount: p.amount,
+            }));
+
+            // Separate user comments from previously auto-generated ones
+            const oldAutoCommentRegex = /Pagamento referente às mensalidades de: .*/g;
+            const userComments = (formState.comments || '').replace(oldAutoCommentRegex, '').trim();
+            
+            let finalComments = userComments;
+
+            // Only generate a new comment if linking is active and multiple payments are selected
+            if (isLinkingPayments && paymentLinks.length > 1) {
+                const memberMap = new Map(membersWithDues.map(m => [m.id, m.name]));
+                const details = paymentLinks.map(link => {
+                    const memberName = memberMap.get(link.memberId) || 'Membro desconhecido';
+                    const monthName = new Date(link.referenceMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+                    const amount = formatCurrency(link.amount);
+                    return `${memberName} (${monthName} - ${amount})`;
+                }).join(', ');
+
+                const generatedComment = `Pagamento referente às mensalidades de: ${details}.`;
+                
+                // Combine user's original comments with the new auto-generated one
+                finalComments = [userComments, generatedComment].filter(Boolean).join('\n\n');
+            }
+            
+            const payload = { 
+                ...formState, 
+                comments: finalComments, // Use the final constructed comments
+                date: new Date(formState.date + 'T12:00:00Z').toISOString() 
+            };
+            
+            let newTransactionId = transactionId;
+            let transactionDate = payload.date;
             
             if (!isEdit && linkedBillId) {
                 const { warning } = await payBillWithTransactionData(linkedBillId, payload);
                 if (warning) toast.info(warning);
                 toast.success('Transação adicionada e conta paga com sucesso!');
             } else if (isEdit && transactionId) {
-                const { warning } = await transactionsApi.update(transactionId, payload);
+                const { data: updatedTrx, warning } = await transactionsApi.update(transactionId, payload);
                 if (warning) toast.info(warning);
-
-                const newLinkData = selectedMemberId && selectedMonth ? { memberId: selectedMemberId, referenceMonth: selectedMonth } : null;
-                await transactionsApi.setPaymentLink(transactionId, newLinkData, payload);
-                
+                transactionDate = updatedTrx.date;
                 toast.success('Transação atualizada com sucesso!');
             } else {
-                await transactionsApi.add(payload as any);
+                const { data: newTrx } = await transactionsApi.add(payload as any);
+                newTransactionId = newTrx.id;
+                transactionDate = newTrx.date;
                 toast.success('Transação adicionada com sucesso!');
+            }
+
+            if (newTransactionId && formState.type === 'income') {
+                await transactionsApi.setMultiplePaymentLinks(newTransactionId, paymentLinks, transactionDate);
             }
             setView(returnView);
         } catch (error: any) {
@@ -760,6 +781,30 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
         } finally {
             setIsSubmitting(false);
             setIsDeleteModalOpen(false);
+        }
+    };
+
+    const handlePaymentSelection = (memberId: string, month: string, amount: number) => {
+        const key = `${memberId}_${month}`;
+        setSelectedPayments(prev => {
+            const newMap = new Map(prev);
+            if (newMap.has(key)) {
+                newMap.delete(key);
+            } else {
+                newMap.set(key, { memberId, amount });
+            }
+            return newMap;
+        });
+    };
+
+    const linkedAmount = useMemo(() => {
+        return Array.from(selectedPayments.values()).reduce((sum, p) => sum + p.amount, 0);
+    }, [selectedPayments]);
+    
+    const handleToggleLinking = (checked: boolean) => {
+        setIsLinkingPayments(checked);
+        if (!checked) {
+            setSelectedPayments(new Map()); // Clear selections when hiding
         }
     };
 
@@ -803,29 +848,68 @@ export const TransactionFormPage: React.FC<{ viewState: ViewState, setView: (vie
                             <option value="">Nenhum</option>{data.payees.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
                     </div>
-
+                    
                     {isEdit && formState.type === 'income' && (
-                        <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-2">
-                             <label className="text-sm font-semibold text-primary">Vincular a Mensalidade</label>
-                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label className={labelClass}>Membro</label>
-                                    <select value={selectedMemberId} onChange={e => { setSelectedMemberId(e.target.value); setSelectedMonth(''); }} className={inputClass}>
-                                        <option value="">Receita Avulsa</option>
-                                        {allMembers
-                                            .filter(m => m.totalDue > 0 || m.id === initialPaymentLink?.memberId)
-                                            .sort((a,b) => a.name.localeCompare(b.name))
-                                            .map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                                    </select>
-                                </div>
-                                 <div>
-                                    <label className={labelClass}>Mês Pendente</label>
-                                    <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} disabled={!selectedMemberId} className={`${inputClass} disabled:bg-muted/50 dark:disabled:bg-dark-muted/50`}>
-                                        <option value="">Selecione o mês...</option>
-                                        {availableMonthsForSelectedMember.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                                    </select>
-                                </div>
-                             </div>
+                        <div className="p-3 bg-primary/10 rounded-lg border border-primary/20 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="link-payments-toggle"
+                                    checked={isLinkingPayments}
+                                    onChange={(e) => handleToggleLinking(e.target.checked)}
+                                    className="h-4 w-4 rounded border-border dark:border-dark-border text-primary focus:ring-primary"
+                                />
+                                <label htmlFor="link-payments-toggle" className="text-sm font-semibold text-primary cursor-pointer">
+                                    Vincular Pagamentos
+                                </label>
+                            </div>
+                            <AnimatePresence>
+                            {isLinkingPayments && (
+                                <motion.div 
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    transition={{ duration: 0.3 }}
+                                    className="space-y-3 overflow-hidden"
+                                >
+                                     <div className="flex justify-around text-center text-xs p-2 bg-background dark:bg-dark-background rounded-md">
+                                        <div>
+                                            <span className="font-bold block text-sm">{formatCurrency(formState.amount)}</span>
+                                            <span className="text-muted-foreground">Valor da Transação</span>
+                                        </div>
+                                         <div>
+                                            <span className={`font-bold block text-sm ${linkedAmount === formState.amount ? 'text-success' : 'text-danger'}`}>{formatCurrency(linkedAmount)}</span>
+                                            <span className="text-muted-foreground">Valor Vinculado</span>
+                                        </div>
+                                    </div>
+                                     <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                                        {membersWithDues.map(member => (
+                                             <div key={member.id}>
+                                                <button type="button" onClick={() => setExpandedMembers(prev => { const next = new Set(prev); if (next.has(member.id)) { next.delete(member.id); } else { next.add(member.id); } return next; })} className="w-full flex justify-between items-center p-2 bg-background dark:bg-dark-background rounded-md font-semibold text-sm">
+                                                    {member.name}
+                                                    <ChevronsUpDown className="h-4 w-4 text-muted-foreground"/>
+                                                </button>
+                                                {expandedMembers.has(member.id) && member.overdueMonths.map(month => {
+                                                    const key = `${member.id}_${month.month}`;
+                                                    const isSelected = selectedPayments.has(key);
+                                                    return (
+                                                        <div key={key} onClick={() => handlePaymentSelection(member.id, month.month, month.amount)} className="flex items-center justify-between p-2 pl-4 cursor-pointer hover:bg-muted dark:hover:bg-dark-muted rounded-md">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`w-4 h-4 rounded border-2 ${isSelected ? 'bg-primary border-primary' : 'border-border dark:border-dark-border'} flex items-center justify-center`}>
+                                                                   {isSelected && <Check className="h-3 w-3 text-white"/>}
+                                                                </div>
+                                                                <span className="text-sm">{new Date(month.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</span>
+                                                            </div>
+                                                            <span className="text-sm font-mono">{formatCurrency(month.amount)}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ))}
+                                     </div>
+                                </motion.div>
+                            )}
+                            </AnimatePresence>
                         </div>
                     )}
                     

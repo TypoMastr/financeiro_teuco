@@ -541,6 +541,13 @@ export const getPaymentByTransactionId = async (transactionId: string): Promise<
     return data ? convertObjectKeys(data, toCamelCase) : undefined;
 };
 
+// FIX: Added a function to fetch multiple payments associated with a transaction ID.
+export const getPaymentsByTransaction = async (transactionId: string): Promise<Payment[]> => {
+    const { data, error } = await supabase.from('payments').select('*').eq('transaction_id', transactionId);
+    if (error) throw error;
+    return convertObjectKeys(data, toCamelCase);
+};
+
 export const getPaymentDetails = async (paymentId: string): Promise<{ payment: Payment, transaction: Transaction | null } | null> => {
     const { data: paymentData, error: paymentError } = await supabase
         .from('payments')
@@ -747,34 +754,6 @@ export const addIncomeTransactionAndPayment = async (
         if (payError) throw payError;
         await addLogEntry(`Criado pagamento para ref. ${paymentData.referenceMonth}`, 'create', 'payment', { id: payData.id });
     }
-    
-    return { warning };
-};
-
-export const updateTransactionAndPaymentLink = async (
-    transactionId: string,
-    transactionData: Partial<Transaction>,
-    paymentLink: { memberId: string, referenceMonth: string }
-): Promise<{ warning?: string }> => {
-    const { warning } = await transactionsApi.update(transactionId, transactionData);
-
-    const { data: oldPay, error: findPayErr } = await supabase.from('payments').select('*').eq('transaction_id', transactionId).single();
-    if (findPayErr) throw findPayErr;
-
-    const paymentUpdatePayload = {
-        member_id: paymentLink.memberId,
-        reference_month: paymentLink.referenceMonth,
-        amount: transactionData.amount,
-        payment_date: transactionData.date,
-        comments: transactionData.comments,
-    };
-
-    const { data: updatedPay, error: updatePayErr } = await supabase.from('payments').update(paymentUpdatePayload).eq('id', oldPay.id).select().single();
-    if (updatePayErr) throw updatePayErr;
-
-    const lookupData = await getLookupData();
-    const description = generateDetailedUpdateMessage(oldPay, updatedPay, 'Pagamento', `ref. ${oldPay.reference_month}`, lookupData);
-    await addLogEntry(description, 'update', 'payment', oldPay);
     
     return { warning };
 };
@@ -1040,54 +1019,65 @@ export const transactionsApi = {
         if (error) throw error;
         await addLogEntry(`Removida transação: "${oldData.description}"`, 'delete', 'transaction', oldData);
     },
-    setPaymentLink: async (
+    setMultiplePaymentLinks: async (
         transactionId: string,
-        linkData: { memberId: string; referenceMonth: string } | null,
-        transaction: Pick<Transaction, 'amount' | 'date' | 'comments' | 'attachmentUrl' | 'attachmentFilename'>
-    ) => {
-        const { data: existingPayment, error: findError } = await supabase
-            .from('payments')
-            .select('*')
-            .eq('transaction_id', transactionId)
-            .maybeSingle();
-        
+        links: { memberId: string; referenceMonth: string; amount: number }[],
+        paymentDate: string
+    ): Promise<void> => {
+        // 1. Unlink all previously associated payments
+        const { data: oldLinks, error: findError } = await supabase.from('payments').select('*').eq('transaction_id', transactionId);
         if (findError) throw findError;
+        
+        const { error: unlinkError } = await supabase.from('payments').update({ transaction_id: null, paid_date: null }).eq('transaction_id', transactionId);
+        if (unlinkError) throw unlinkError;
+        if(oldLinks.length > 0) await addLogEntry(`Desvinculados ${oldLinks.length} pagamentos da transação.`, 'update', 'transaction', { id: transactionId });
 
-        if (linkData) { // User wants to link or change the link
-            const paymentPayload = {
-                member_id: linkData.memberId,
-                reference_month: linkData.referenceMonth,
-                amount: transaction.amount,
-                payment_date: transaction.date,
-                comments: transaction.comments,
-                attachment_url: transaction.attachmentUrl,
-                attachment_filename: transaction.attachmentFilename,
-                transaction_id: transactionId,
-            };
+        // 2. Link new payments
+        if (links.length > 0) {
+             const memberIds = links.map(l => l.memberId);
+             const referenceMonths = links.map(l => l.referenceMonth);
 
-            if (existingPayment) { // Update existing payment link
-                const { error: updateError } = await supabase.from('payments').update(paymentPayload).eq('id', existingPayment.id);
-                if (updateError) throw updateError;
-                const lookupData = await getLookupData();
-                const memberName = lookupData.members.get(linkData.memberId) || 'desconhecido';
-                await addLogEntry(`Vínculo de pagamento alterado para "${memberName}" ref. ${linkData.referenceMonth}.`, 'update', 'payment', existingPayment);
+            const { data: paymentsToUpdate, error: selectError } = await supabase
+                .from('payments')
+                .select('*')
+                .in('member_id', memberIds)
+                .in('reference_month', referenceMonths);
 
-            } else { // Create new payment link
-                const { data: newPayment, error: insertError } = await supabase.from('payments').insert(paymentPayload).select().single();
-                if (insertError) throw insertError;
-                const lookupData = await getLookupData();
-                const memberName = lookupData.members.get(linkData.memberId) || 'desconhecido';
-                await addLogEntry(`Pagamento de "${memberName}" ref. ${linkData.referenceMonth} vinculado à transação.`, 'create', 'payment', { id: newPayment.id });
+            if (selectError) throw selectError;
+
+            const updates = links.map(link => {
+                const existingPayment = paymentsToUpdate.find(p => p.member_id === link.memberId && p.reference_month === link.referenceMonth);
+                
+                if (existingPayment) { // Update existing historical payment
+                    return supabase.from('payments').update({
+                        transaction_id: transactionId,
+                        paid_date: paymentDate,
+                        amount: link.amount,
+                        // Keep comments and attachments from historical payment
+                    }).eq('id', existingPayment.id);
+                } else { // Create a new payment record
+                    return supabase.from('payments').insert({
+                        member_id: link.memberId,
+                        reference_month: link.referenceMonth,
+                        amount: link.amount,
+                        payment_date: paymentDate,
+                        transaction_id: transactionId,
+                    });
+                }
+            });
+
+            const results = await Promise.all(updates);
+            const errors = results.map(r => r.error).filter(Boolean);
+            if (errors.length > 0) {
+                console.error("Errors linking payments:", errors);
+                throw new Error(`Falha ao vincular ${errors.length} pagamentos.`);
             }
 
-        } else if (existingPayment) { // User wants to unlink
-            const { error: deleteError } = await supabase.from('payments').delete().eq('id', existingPayment.id);
-            if (deleteError) throw deleteError;
-            const lookupData = await getLookupData();
-            const memberName = lookupData.members.get(existingPayment.member_id) || 'desconhecido';
-            await addLogEntry(`Pagamento de "${memberName}" ref. ${existingPayment.reference_month} desvinculado da transação.`, 'delete', 'payment', existingPayment);
+            const lookup = await getLookupData();
+            const linkDescriptions = links.map(l => `"${lookup.members.get(l.memberId) || l.memberId}" (ref. ${l.referenceMonth})`).join(', ');
+            await addLogEntry(`Transação vinculada aos pagamentos de: ${linkDescriptions}.`, 'update', 'transaction', { id: transactionId });
         }
-    },
+    }
 };
 
 // --- API: ACCOUNTS PAYABLE ---
