@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ViewState, Transaction, Category, Tag, Project, Account } from '../types';
 import { getFinancialReport, categoriesApi, tagsApi, projectsApi, accountsApi, getAccountHistory } from '../services/api';
-import { ArrowLeft, Paperclip, ChevronDown, MessageSquare } from './Icons';
+import { ArrowLeft, Paperclip, ChevronDown, MessageSquare, ArrowRightLeft } from './Icons';
 import { DateField } from './common/PageLayout';
 import { useToast } from './Notifications';
 
@@ -39,14 +39,16 @@ const TransactionCard: React.FC<{
     return (
         <motion.div
             layout
-            onClick={onSelect}
-            className="bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border cursor-pointer transition-colors hover:bg-muted/50 dark:hover:bg-dark-muted/50"
+            onClick={transaction.transferId ? undefined : onSelect}
+            className={`bg-card dark:bg-dark-card rounded-lg border border-border dark:border-dark-border transition-colors ${transaction.transferId ? 'cursor-default' : 'cursor-pointer hover:bg-muted/50 dark:hover:bg-dark-muted/50'}`}
         >
             <div className="p-4 flex items-start justify-between gap-4">
                 {/* Left side */}
                 <div className="flex-1 min-w-0">
                     <p className="font-bold text-foreground dark:text-dark-foreground break-words">{transaction.description}</p>
                     <div className="flex items-center gap-x-3 text-sm text-muted-foreground mt-1">
+                        {/* FIX: Removed the invalid 'title' prop from the icon component to fix the TypeScript error. The title is now handled within the SVG component itself for better accessibility. */}
+                        {transaction.transferId && <ArrowRightLeft className="h-4 w-4 text-blue-500" />}
                         <span>{categoryName}</span>
                         <span>{formatDate(transaction.date)}</span>
                     </div>

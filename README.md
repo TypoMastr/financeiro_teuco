@@ -21,6 +21,28 @@ View your app in AI Studio: https://ai.studio/apps/drive/15DH5djyaoQkJ9bwH8LA0nG
    
 ## Troubleshooting
 
+### Error: "Could not find the 'transfer_id' column..."
+
+If you see an error related to `transfer_id`, it means your database is missing an update for the fund transfer feature.
+
+**To fix this**, please run the following SQL script in your Supabase project's SQL Editor:
+
+```sql
+-- Adds a column to link transfer transactions
+ALTER TABLE public.transactions
+  ADD COLUMN transfer_id uuid NULL;
+
+-- Adds an index to optimize lookups on this column
+CREATE INDEX IF NOT EXISTS transactions_transfer_id_idx ON public.transactions (transfer_id);
+
+-- Optional: Adds a default category for transfers if it doesn't exist
+INSERT INTO public.categories (name, type)
+SELECT 'Transferência entre Contas', 'both'
+WHERE NOT EXISTS (
+    SELECT 1 FROM public.categories WHERE name = 'Transferência entre Contas'
+);
+```
+
 ### Error: "Could not find the 'payable_bill_id' column..."
 
 If you encounter an error like `"Falha ao salvar: Could not find the 'payable_bill_id' column of 'transactions' in the schema cache"`, it means your database schema is missing an update.

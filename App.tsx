@@ -5,7 +5,7 @@ import MemberProfile, { PaymentFormPage, PaymentEditFormPage } from './component
 import MemberForm from './components/MemberForm';
 import PrintableReport from './components/PrintableReport';
 // FIX: Corrected import to be a named import as Financial is not exported by default, and added FutureIncomePage.
-import { Financial, TransactionFormPage, ReportFiltersPage, FutureIncomePage, TransactionViewerPage } from './components/Financial';
+import { Financial, TransactionFormPage, ReportFiltersPage, FutureIncomePage, TransactionViewerPage, TransferFormPage } from './components/Financial';
 import { Settings, SettingsItemFormPage, SettingsListPage } from './components/Settings';
 import FinancialDetail from './components/FinancialDetail';
 import { TransactionHistory } from './components/TransactionHistory';
@@ -144,6 +144,8 @@ const App: React.FC = () => {
           return <OfxImportFormPage viewState={view} setView={handleSetView} />;
       case 'leave-form':
           return <LeaveFormPage viewState={view} setView={handleSetView} />;
+      case 'transfer-form':
+          return <TransferFormPage viewState={view} setView={handleSetView} />;
       case 'chatbot':
           return <Chatbot setView={handleSetView} />;
 

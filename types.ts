@@ -100,6 +100,7 @@ export interface Transaction {
   attachmentUrl?: string;
   attachmentFilename?: string;
   runningBalance?: number;
+  transferId?: string;
 }
 
 export interface PayableBill {
@@ -190,4 +191,5 @@ export type ViewState =
   | { name: 'batch-transaction-form', returnView: ViewState }
   | { name: 'ofx-import-form', returnView: ViewState }
   | { name: 'leave-form', memberId: string, leaveId?: string, returnView: ViewState }
+  | { name: 'transfer-form', returnView: ViewState }
   | { name: 'chatbot' };
