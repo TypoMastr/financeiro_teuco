@@ -2,11 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ViewState } from '../types';
 import { Dashboard, Users, ClubLogo, DollarSign, Settings, ClipboardList, FileText, History, MessageSquare } from './Icons';
-
-interface SidebarProps {
-  currentViewName: ViewState['name'];
-  setView: (view: ViewState) => void;
-}
+import { useApp } from '../contexts/AppContext';
 
 const navContainerVariants = {
   hidden: { opacity: 0 },
@@ -47,7 +43,10 @@ const NavItem: React.FC<{
   </motion.li>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentViewName, setView }) => {
+export const Sidebar: React.FC = () => {
+  const { view, setView } = useApp();
+  const currentViewName = view.name;
+
   const sidebarClasses = `
     hidden lg:flex flex-col w-64 h-screen bg-card dark:bg-dark-background 
     border-r border-border dark:border-dark-border flex-shrink-0

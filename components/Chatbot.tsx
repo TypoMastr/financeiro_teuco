@@ -6,13 +6,15 @@ import { PageHeader } from './common/PageLayout';
 import { MessageSquare, Send, User, Paperclip, RotateCw } from './Icons';
 import { getChatbotContextData } from '../services/api';
 import { useToast } from './Notifications';
+import { useApp } from '../contexts/AppContext';
 
 interface Message {
     sender: 'user' | 'ai';
     text: string;
 }
 
-const MessageContent: React.FC<{ text: string; setView: (view: ViewState) => void }> = ({ text, setView }) => {
+const MessageContent: React.FC<{ text: string }> = ({ text }) => {
+    const { setView } = useApp();
     // Regex to find **bold** text or [attachment links](url)
     const parts = text.split(/(\*\*.*?\*\*)|(\[VISUALIZAR COMPROVANTE\]\(.*?\))/g);
 
@@ -298,7 +300,8 @@ const getGreeting = (): string => {
 };
 
 
-export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
+export const Chatbot: React.FC = () => {
+    const { setView } = useApp();
     const toast = useToast();
     const [messages, setMessages] = useState<Message[]>(() => {
         try {
@@ -417,7 +420,7 @@ export const Chatbot: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                         >
                             {msg.sender === 'ai' && <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center"><MessageSquare className="h-5 w-5" /></div>}
                             <div className={`max-w-[85%] p-3 rounded-2xl ${msg.sender === 'user' ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-md'}`}>
-                                <MessageContent text={msg.text} setView={setView} />
+                                <MessageContent text={msg.text} />
                             </div>
                             {msg.sender === 'user' && <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted dark:bg-dark-muted flex items-center justify-center text-muted-foreground"><User className="h-5 w-5" /></div>}
                         </motion.div>

@@ -77,6 +77,8 @@ export const ToastContainer: React.FC = () => {
             exit={{ opacity: 0, x: 100, scale: 0.8 }}
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
             className="flex items-start w-full p-4 rounded-lg shadow-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border"
+            role={toast.type === 'error' ? 'alert' : 'status'}
+            aria-live="assertive"
           >
             <div className="flex-shrink-0">{toastIcons[toast.type]}</div>
             <div className="ml-3 flex-1">

@@ -1,32 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-// FIX: Import types from the corrected types.ts file.
 import { Member, ViewState } from '../types';
 import { getMemberById, addMember, updateMember } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Save, User, Mail, Phone, Calendar, DollarSign, AlertTriangle } from './Icons';
-import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
+import { PageHeader, SubmitButton } from './common/PageLayout';
+import { TextInput, CurrencyInput, CheckboxInput, DateField } from './common/FormControls';
 import { useToast } from './Notifications';
+import { useApp } from '../contexts/AppContext';
 
-// --- Utility Functions ---
-const formatPhoneNumber = (value: string): string => {
-    if (!value) return value;
-    const digits = value.replace(/\D/g, '');
-    if (digits.length <= 2) return `(${digits}`;
-    if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
-};
-
-const formatCurrencyForInput = (value: number): string => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-};
-
-const parseCurrencyFromInput = (formattedValue: string): number => {
-    const numericString = formattedValue.replace(/[R$\s.]/g, '').replace(',', '.');
-    return parseFloat(numericString) || 0;
-};
-
-
-// --- Global variants to avoid recreation on render ---
+// --- Global variants ---
 const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
@@ -38,39 +20,19 @@ const itemVariants: Variants = {
     exit: { y: 20, opacity: 0 }
 };
 
-// --- Input Component (Memoized for performance) ---
-const InputField = React.memo<{
-    id: string; name: string; label: string; type: string; value: any;
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    icon: React.ReactNode; required?: boolean; step?: string; maxLength?: number;
-}>(({ id, name, label, type, value, onChange, icon, required, step, maxLength }) => (
-    <motion.div variants={itemVariants}>
-        <label htmlFor={id} className="block text-base font-semibold text-foreground dark:text-dark-foreground">{label}</label>
-        <div className="relative mt-2">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">{icon}</span>
-            <input
-                type={type} id={id} name={name} value={value}
-                onChange={onChange} required={required} step={step} maxLength={maxLength}
-                className="block w-full pl-12 pr-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm"
-            />
-        </div>
-    </motion.div>
-));
-
 // --- Main Form Component ---
 interface MemberFormProps {
     memberId?: string;
-    setView: (view: ViewState) => void;
 }
 
-const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
+const MemberForm: React.FC<MemberFormProps> = ({ memberId }) => {
+    const { setView } = useApp();
     const isEditMode = !!memberId;
     const [member, setMember] = useState<Partial<Member>>({
         name: '', email: '', phone: '', monthlyFee: 50,
         activityStatus: 'Ativo', joinDate: new Date().toISOString().slice(0, 10), birthday: '',
         isExempt: false,
     });
-    const [monthlyFeeStr, setMonthlyFeeStr] = useState('R$ 50,00');
     const [loading, setLoading] = useState(isEditMode);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
@@ -81,56 +43,23 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
             setLoading(true);
             getMemberById(memberId).then(data => {
                 if (data) {
-                    setMember({
-                        ...data,
-                        phone: formatPhoneNumber(data.phone)
-                    });
-                    setMonthlyFeeStr(formatCurrencyForInput(data.monthlyFee));
+                    setMember(data);
                 }
                 setLoading(false);
             }).catch(() => setLoading(false));
         }
     }, [isEditMode, memberId]);
 
-    const handleCurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const rawValue = e.target.value.replace(/\D/g, '');
-        const numericValue = rawValue ? parseInt(rawValue, 10) / 100 : 0;
-        setMember(prev => ({ ...prev, monthlyFee: numericValue }));
-        setMonthlyFeeStr(formatCurrencyForInput(numericValue));
-    };
-
     const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        let formattedValue = value;
-
-        switch (name) {
-            case 'name':
-                formattedValue = value.toUpperCase();
-                break;
-            case 'email':
-                formattedValue = value.toLowerCase();
-                break;
-            case 'phone':
-                formattedValue = formatPhoneNumber(value);
-                break;
-        }
+        const { name, value, type } = e.target;
+        const isCheckbox = type === 'checkbox';
+        const finalValue = isCheckbox ? (e.target as HTMLInputElement).checked : value;
         
-        setMember(prev => ({ ...prev, [name]: formattedValue }));
+        setMember(prev => ({ ...prev, [name]: finalValue }));
     }, []);
-
-    const handleSetDeparture = () => {
-        setMember(prev => ({
-            ...prev,
-            activityStatus: 'Desligado',
-        }));
-    };
     
-    const handleReactivate = () => {
-        setMember(prev => ({
-            ...prev,
-            activityStatus: 'Ativo',
-        }));
-    };
+    const handleSetDeparture = () => setMember(prev => ({ ...prev, activityStatus: 'Desligado' }));
+    const handleReactivate = () => setMember(prev => ({ ...prev, activityStatus: 'Ativo' }));
     
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -141,8 +70,8 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
             const joinDateISO = new Date(joinDateValue + 'T12:00:00Z').toISOString();
 
             const dataToSave = {
-                name: member.name || '',
-                email: member.email || '',
+                name: member.name?.toUpperCase() || '',
+                email: member.email?.toLowerCase() || '',
                 phone: (member.phone || '').replace(/\D/g, ''),
                 monthlyFee: member.monthlyFee || 0,
                 joinDate: joinDateISO,
@@ -191,31 +120,21 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
     const goBack = () => isEditMode && memberId ? setView({ name: 'member-profile', id: memberId }) : setView({ name: 'members' });
 
     return (
-        <form 
-            onSubmit={handleSubmit} 
-            className="space-y-6 max-w-3xl mx-auto"
-        >
+        <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl mx-auto">
             <PageHeader
               title={isEditMode ? 'Editar Membro' : 'Novo Membro'}
               onBack={goBack}
             />
-             <p className="text-muted-foreground dark:text-dark-muted-foreground -mt-4 text-base text-center">{isEditMode ? 'Altere as informações abaixo.' : 'Preencha os dados para adicionar um novo membro.'}</p>
+            <p className="text-muted-foreground dark:text-dark-muted-foreground -mt-4 text-base text-center">{isEditMode ? 'Altere as informações abaixo.' : 'Preencha os dados para adicionar um novo membro.'}</p>
 
-
-            <motion.div 
-              className="space-y-8"
-              variants={containerVariants}
-            >
-                <motion.div 
-                    variants={itemVariants} 
-                    className="bg-card dark:bg-dark-card p-6 sm:p-8 rounded-xl border border-border dark:border-dark-border shadow-form-card dark:shadow-dark-form-card overflow-hidden"
-                >
+            <motion.div className="space-y-8" variants={containerVariants}>
+                <motion.div variants={itemVariants} className="bg-card dark:bg-dark-card p-6 sm:p-8 rounded-xl border border-border dark:border-dark-border shadow-form-card dark:shadow-dark-form-card overflow-hidden">
                     <div className="border-t-4 border-primary -mt-6 sm:-mt-8 -mx-6 sm:-mx-8 mb-6 sm:mb-8"></div>
                     <motion.h3 variants={itemVariants} className="text-xl md:text-2xl font-bold mb-6">Informações Pessoais</motion.h3>
                     <motion.div className="space-y-6" variants={containerVariants}>
-                        <InputField id="name" name="name" label="Nome Completo" type="text" value={member.name} onChange={handleInputChange} required icon={<User className="h-5 w-5"/>} />
-                        <InputField id="email" name="email" label="E-mail" type="email" value={member.email} onChange={handleInputChange} icon={<Mail className="h-5 w-5"/>} />
-                        <InputField id="phone" name="phone" label="Telefone" type="tel" value={member.phone} onChange={handleInputChange} icon={<Phone className="h-5 w-5"/>} maxLength={15} />
+                        <TextInput id="name" name="name" label="Nome Completo" type="text" value={member.name} onChange={e => setMember(prev => ({...prev, name: e.target.value.toUpperCase()}))} required icon={<User className="h-5 w-5"/>} />
+                        <TextInput id="email" name="email" label="E-mail" type="email" value={member.email} onChange={e => setMember(prev => ({...prev, email: e.target.value.toLowerCase()}))} icon={<Mail className="h-5 w-5"/>} />
+                        <TextInput id="phone" name="phone" label="Telefone" type="tel" value={member.phone} onChange={handleInputChange} icon={<Phone className="h-5 w-5"/>} maxLength={15} />
                         <motion.div variants={itemVariants}>
                             <label className="block text-base font-semibold text-foreground dark:text-dark-foreground">Data de Nascimento</label>
                             <div className="relative mt-2">
@@ -225,70 +144,28 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                                   label=""
                                   value={member.birthday || ''}
                                   onChange={date => setMember(prev => ({...prev, birthday: date}))}
-                                  className="block w-full pl-12 pr-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm"
+                                  className="pl-12"
                                 />
                             </div>
                         </motion.div>
                     </motion.div>
                 </motion.div>
                 
-                <motion.div 
-                    variants={itemVariants} 
-                    className="bg-card dark:bg-dark-card p-6 sm:p-8 rounded-xl border border-border dark:border-dark-border shadow-form-card dark:shadow-dark-form-card overflow-hidden"
-                >
-                     <div className="border-t-4 border-primary -mt-6 sm:-mt-8 -mx-6 sm:-mx-8 mb-6 sm:mb-8"></div>
+                <motion.div variants={itemVariants} className="bg-card dark:bg-dark-card p-6 sm:p-8 rounded-xl border border-border dark:border-dark-border shadow-form-card dark:shadow-dark-form-card overflow-hidden">
+                    <div className="border-t-4 border-primary -mt-6 sm:-mt-8 -mx-6 sm:-mx-8 mb-6 sm:mb-8"></div>
                     <motion.h3 variants={itemVariants} className="text-xl md:text-2xl font-bold mb-6">Detalhes da Filiação</motion.h3>
                     <motion.div className="space-y-6" variants={containerVariants}>
-
+                        <CurrencyInput id="monthlyFee" label="Valor Mensal (R$)" value={member.monthlyFee || 0} onValueChange={value => setMember(prev => ({ ...prev, monthlyFee: value }))} required icon={<DollarSign className="h-5 w-5"/>} />
                         <motion.div variants={itemVariants}>
-                            <label htmlFor="monthlyFee" className="block text-base font-semibold text-foreground dark:text-dark-foreground">Valor Mensal (R$)</label>
+                            <label className="block text-base font-semibold text-foreground dark:text-dark-foreground">Data de Filiação / Início Contribuição</label>
                             <div className="relative mt-2">
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"><DollarSign className="h-5 w-5"/></span>
-                                <input
-                                    type="text"
-                                    id="monthlyFee"
-                                    name="monthlyFee"
-                                    value={monthlyFeeStr}
-                                    onChange={handleCurrencyChange}
-                                    required
-                                    className="block w-full pl-12 pr-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm"
-                                />
-                            </div>
-                        </motion.div>
-
-                        <motion.div variants={itemVariants}>
-                             <label className="block text-base font-semibold text-foreground dark:text-dark-foreground">Data de Filiação / Início Contribuição</label>
-                             <div className="relative mt-2">
                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"><Calendar className="h-5 w-5"/></span>
-                                <DateField
-                                  id="joinDate"
-                                  label=""
-                                  value={(member.joinDate || '').slice(0,10)}
-                                  onChange={date => setMember(prev => ({...prev, joinDate: date}))}
-                                  className="block w-full pl-12 pr-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm"
-                                  required={!member.isExempt}
-                                />
+                                <DateField id="joinDate" label="" value={(member.joinDate || '').slice(0,10)} onChange={date => setMember(prev => ({...prev, joinDate: date}))} className="pl-12" required={!member.isExempt} />
                             </div>
                         </motion.div>
-
+                        <CheckboxInput id="isExempt" label="Isento de Mensalidade" checked={member.isExempt || false} onChange={handleInputChange} />
                         <motion.div variants={itemVariants}>
-                            <div className="flex items-center gap-3 bg-background dark:bg-dark-input p-3 border border-border dark:border-dark-border rounded-lg">
-                                <input
-                                    type="checkbox"
-                                    id="isExempt"
-                                    name="isExempt"
-                                    checked={member.isExempt || false}
-                                    onChange={e => setMember(prev => ({ ...prev, isExempt: e.target.checked }))}
-                                    className="h-5 w-5 rounded border-border dark:border-dark-border text-primary focus:ring-primary"
-                                />
-                                <label htmlFor="isExempt" className="text-base font-semibold text-foreground dark:text-dark-foreground cursor-pointer">
-                                    Isento de Mensalidade
-                                </label>
-                            </div>
-                        </motion.div>
-                        
-                         <motion.div variants={itemVariants}>
-                             <label htmlFor="activityStatus" className="block text-base font-semibold text-foreground dark:text-dark-foreground">Status do Membro</label>
+                            <label htmlFor="activityStatus" className="block text-base font-semibold text-foreground dark:text-dark-foreground">Status do Membro</label>
                             <select id="activityStatus" name="activityStatus" value={member.activityStatus} onChange={handleInputChange} disabled={member.activityStatus === 'Desligado' || member.activityStatus === 'Arquivado'} className="block w-full mt-2 px-4 py-3 bg-card dark:bg-dark-input border border-border dark:border-dark-border focus:ring-2 focus:ring-ring focus:outline-none transition-all text-base rounded-lg shadow-sm disabled:bg-muted/50 dark:disabled:bg-dark-muted/50 disabled:cursor-not-allowed">
                                 <option value="Ativo">Ativo</option>
                                 <option value="Inativo">Inativo</option>
@@ -302,35 +179,16 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                                 {member.activityStatus === 'Desligado' || member.activityStatus === 'Arquivado' ? (
                                     <div className="space-y-4 text-center">
                                         <h4 className="text-lg font-bold text-warning">Status: Membro {member.activityStatus}</h4>
-                                        <button
-                                            type="button"
-                                            onClick={handleReactivate}
-                                            className="text-primary font-semibold hover:underline"
-                                        >
-                                            Reativar Membro
-                                        </button>
+                                        <button type="button" onClick={handleReactivate} className="text-primary font-semibold hover:underline">Reativar Membro</button>
                                     </div>
                                 ) : (
                                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                                         <button
-                                            type="button"
-                                            onClick={handleSetDeparture}
-                                            className="bg-yellow-500/10 text-yellow-600 font-semibold py-2 px-4 rounded-md hover:bg-yellow-500/20 transition-colors"
-                                        >
-                                            Registrar Desligamento
-                                        </button>
-                                         <button
-                                            type="button"
-                                            onClick={() => setIsArchiveModalOpen(true)}
-                                            className="bg-destructive/10 text-destructive font-semibold py-2 px-4 rounded-md hover:bg-destructive/20 transition-colors"
-                                        >
-                                            Excluir Membro (Arquivar)
-                                        </button>
+                                        <button type="button" onClick={handleSetDeparture} className="bg-yellow-500/10 text-yellow-600 font-semibold py-2 px-4 rounded-md hover:bg-yellow-500/20 transition-colors">Registrar Desligamento</button>
+                                        <button type="button" onClick={() => setIsArchiveModalOpen(true)} className="bg-destructive/10 text-destructive font-semibold py-2 px-4 rounded-md hover:bg-destructive/20 transition-colors">Excluir Membro (Arquivar)</button>
                                     </div>
                                 )}
                             </motion.div>
                         )}
-
                     </motion.div>
                 </motion.div>
 
@@ -342,20 +200,8 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
             </motion.div>
             <AnimatePresence>
                 {isArchiveModalOpen && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                        onClick={() => setIsArchiveModalOpen(false)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
-                            onClick={(e) => e.stopPropagation()}
-                        >
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setIsArchiveModalOpen(false)}>
+                        <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border" onClick={(e) => e.stopPropagation()}>
                             <div className="text-center">
                                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
                                     <AlertTriangle className="h-6 w-6 text-destructive" aria-hidden="true" />
@@ -367,21 +213,8 @@ const MemberForm: React.FC<MemberFormProps> = ({ memberId, setView }) => {
                                 </div>
                             </div>
                             <div className="mt-6 flex justify-center gap-4">
-                                <button
-                                    type="button"
-                                    className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted"
-                                    onClick={() => setIsArchiveModalOpen(false)}
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    type="button"
-                                    className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                                    onClick={handleArchiveMember}
-                                    disabled={isSubmitting}
-                                >
-                                    {isSubmitting ? 'Arquivando...' : 'Sim, Arquivar'}
-                                </button>
+                                <button type="button" className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted" onClick={() => setIsArchiveModalOpen(false)}>Cancelar</button>
+                                <button type="button" className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90" onClick={handleArchiveMember} disabled={isSubmitting}>{isSubmitting ? 'Arquivando...' : 'Sim, Arquivar'}</button>
                             </div>
                         </motion.div>
                     </motion.div>

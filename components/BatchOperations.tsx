@@ -5,8 +5,10 @@ import { accountsApi, categoriesApi, transactionsApi, payeesApi } from '../servi
 import { PageHeader, SubmitButton } from './common/PageLayout';
 import { useToast } from './Notifications';
 import { UploadCloud } from './Icons';
+import { useApp } from '../contexts/AppContext';
 
-export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
+export const BatchTransactionFormPage: React.FC<{ viewState: ViewState }> = ({ viewState }) => {
+    const { setView } = useApp();
     const { returnView = { name: 'financial' } } = viewState as { name: 'batch-transaction-form', returnView: ViewState };
     const toast = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -157,7 +159,8 @@ export const BatchTransactionFormPage: React.FC<{ viewState: ViewState, setView:
     );
 };
 
-export const OfxImportFormPage: React.FC<{ viewState: ViewState, setView: (view: ViewState) => void }> = ({ viewState, setView }) => {
+export const OfxImportFormPage: React.FC<{ viewState: ViewState }> = ({ viewState }) => {
+    const { setView } = useApp();
     // FIX: Cast viewState to the correct discriminated union type to access its properties.
     const { returnView = { name: 'financial' } } = viewState as { name: 'ofx-import-form', returnView: ViewState };
     const toast = useToast();

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType, Leave } from '../types';
+import { Member, Payment, PaymentStatus, Stats, OverdueMonth, Account, Category, Tag, Payee, Transaction, Project, PayableBill, LogEntry, ActionType, EntityType, Leave, SortOption } from '../types';
 
 const SUPABASE_URL = "https://qoqubqskbzwcsvcwrxdm.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcXVicXNrYnp3Y3N2Y3dyeGRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY4NjAzMDUsImV4cCI6MjA3MjQzNjMwNX0.00KWOxdDd34DptwigNsMz3VAz5A1lTL13fBHcApPWSA";
@@ -463,18 +463,65 @@ export const accountsApi = {
     }
 };
 
+interface MemberFilters {
+  searchTerm?: string;
+  status?: string;
+  activity?: string;
+  sort?: SortOption;
+}
+
 // --- API: MEMBERS & PAYMENTS ---
-export const getMembers = async (): Promise<Member[]> => {
-    const { data: membersData, error: membersError } = await supabase.from('members').select('*');
+export const getMembers = async (filters?: MemberFilters): Promise<Member[]> => {
+    // 1. Build members query
+    let membersQuery = supabase.from('members').select('*');
+
+    if (filters?.searchTerm) {
+        membersQuery = membersQuery.ilike('name', `%${filters.searchTerm}%`);
+    }
+
+    // 'OnLeave' is calculated, so we handle it later.
+    if (filters?.activity && filters.activity !== 'all' && filters.activity !== 'OnLeave') {
+        membersQuery = membersQuery.eq('activity_status', filters.activity);
+    } else {
+        // Default to not showing archived unless explicitly requested by filter 'Arquivado'
+        if (!filters?.activity || filters.activity !== 'Arquivado') {
+             membersQuery = membersQuery.neq('activity_status', 'Arquivado');
+        }
+    }
+    
+    // Sorting
+    if (filters?.sort) {
+        const sortField = 'name';
+        const ascending = filters.sort === 'name_asc';
+        membersQuery = membersQuery.order(sortField, { ascending });
+    } else {
+        membersQuery = membersQuery.order('name', { ascending: true }); // Default sort
+    }
+
+    const { data: membersData, error: membersError } = await membersQuery;
     if (membersError) throw membersError;
-    const { data: paymentsData, error: paymentsError } = await supabase.from('payments').select('*');
+
+    if (!membersData || membersData.length === 0) return [];
+
+    // 2. Fetch related data only for the filtered members
+    const memberIds = membersData.map(m => m.id);
+
+    const [paymentsRes, leavesRes] = await Promise.all([
+        supabase.from('payments').select('*').in('member_id', memberIds),
+        supabase.from('leaves').select('*').in('member_id', memberIds)
+    ]);
+
+    const { data: paymentsData, error: paymentsError } = paymentsRes;
     if (paymentsError) throw paymentsError;
-    const { data: leavesData, error: leavesError } = await supabase.from('leaves').select('*');
+
+    const { data: leavesData, error: leavesError } = leavesRes;
     if (leavesError) throw leavesError;
 
+    // 3. Process data client-side (this part is unavoidable without DB functions)
     const rawMembers = convertObjectKeys(membersData, toCamelCase);
     const rawPayments = convertObjectKeys(paymentsData, toCamelCase);
     const rawLeaves = convertObjectKeys(leavesData, toCamelCase);
+
     const leavesByMember = new Map<string, Leave[]>();
     rawLeaves.forEach((leave: Leave) => {
         if (!leavesByMember.has(leave.memberId)) {
@@ -483,10 +530,23 @@ export const getMembers = async (): Promise<Member[]> => {
         leavesByMember.get(leave.memberId)!.push(leave);
     });
 
-    return rawMembers.map((m: any) => {
+    const detailedMembers = rawMembers.map((m: any) => {
         const memberPayments = rawPayments.filter((p: Payment) => p.memberId === m.id);
         const memberLeaves = leavesByMember.get(m.id) || [];
         return calculateMemberDetails(m, memberPayments, memberLeaves);
+    });
+
+    // 4. Final client-side filtering for calculated fields
+    if (!filters) return detailedMembers;
+
+    return detailedMembers.filter(member => {
+        if (filters.activity === 'OnLeave' && !member.onLeave) {
+            return false;
+        }
+        if (filters.status && filters.status !== 'all' && member.paymentStatus !== filters.status) {
+            return false;
+        }
+        return true;
     });
 };
 
@@ -1082,9 +1142,23 @@ export const transactionsApi = {
 
 // --- API: ACCOUNTS PAYABLE ---
 export const payableBillsApi = {
-    getAll: async (): Promise<PayableBill[]> => {
-        const { data, error } = await supabase.from('payable_bills').select('*').order('due_date');
+    getAll: async (filters: { searchTerm?: string; status?: 'all' | 'overdue' | 'pending' | 'paid' } = {}): Promise<PayableBill[]> => {
+        let query = supabase.from('payable_bills').select('*');
+
+        if (filters.searchTerm) {
+            query = query.ilike('description', `%${filters.searchTerm}%`);
+        }
+        if (filters.status && filters.status !== 'all') {
+            if (filters.status === 'pending') {
+                query = query.in('status', ['pending', 'overdue']);
+            } else {
+                query = query.eq('status', filters.status);
+            }
+        }
+        
+        const { data, error } = await query.order('due_date', { ascending: false });
         if (error) throw error;
+        
         const bills = convertObjectKeys(data, toCamelCase) as Omit<PayableBill, 'isEstimate'>[];
         return bills.map(bill => {
             const notes = bill.notes || '';
@@ -1337,6 +1411,51 @@ export const getUnlinkedExpenses = async (): Promise<Transaction[]> => {
 };
 
 // --- API: REPORTS & STATS ---
+// FIX: Added the missing 'getPayableBillsSummary' function to be exported and used in the AccountsPayable component.
+export const getPayableBillsSummary = async () => {
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    const endOfMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const endOfMonth = endOfMonthDate.toISOString().slice(0, 10);
+    const endOfMonthWithTime = new Date(Date.UTC(endOfMonthDate.getFullYear(), endOfMonthDate.getMonth(), endOfMonthDate.getDate(), 23, 59, 59, 999)).toISOString();
+
+    const { data: previousOverdueData, error: previousOverdueError } = await supabase
+        .from('payable_bills')
+        .select('amount')
+        .in('status', ['pending', 'overdue'])
+        .lt('due_date', startOfMonth);
+    if (previousOverdueError) throw previousOverdueError;
+    const previousOverdueAmount = previousOverdueData.reduce((sum, bill) => sum + bill.amount, 0);
+
+    const { data: thisMonthOpenData, error: thisMonthOpenError } = await supabase
+        .from('payable_bills')
+        .select('amount')
+        .in('status', ['pending', 'overdue'])
+        .gte('due_date', startOfMonth)
+        .lte('due_date', endOfMonth);
+    if (thisMonthOpenError) throw thisMonthOpenError;
+    const thisMonthOpenAmount = thisMonthOpenData.reduce((sum, bill) => sum + bill.amount, 0);
+
+    const { data: thisMonthPaidData, error: thisMonthPaidError } = await supabase
+        .from('payable_bills')
+        .select('amount')
+        .eq('status', 'paid')
+        .gte('paid_date', startOfMonth)
+        .lte('paid_date', endOfMonthWithTime);
+    if (thisMonthPaidError) throw thisMonthPaidError;
+    const thisMonthPaidAmount = thisMonthPaidData.reduce((sum, bill) => sum + bill.amount, 0);
+    
+    return {
+        previousOverdue: {
+            amount: previousOverdueAmount,
+        },
+        thisMonth: {
+            openAmount: thisMonthOpenAmount,
+            paidAmount: thisMonthPaidAmount,
+        }
+    };
+};
+
 export const getDashboardStats = async (): Promise<Stats> => {
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();

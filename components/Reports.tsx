@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { getOverdueReport, getRevenueReport, getDREData } from '../services/api';
 import { motion, Variants } from 'framer-motion';
-// FIX: Import types from the corrected types.ts file.
 import { ViewState } from '../types';
 import { AlertTriangle, TrendingUp, FileSearch, BarChartHorizontal } from './Icons';
-import { DateField } from './common/PageLayout';
+import { DateField } from './common/FormControls';
+import { useApp } from '../contexts/AppContext';
 
 const cardContainerVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
@@ -45,7 +45,8 @@ const ReportCard: React.FC<{
 );
 
 
-export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
+export const Reports: React.FC = () => {
+  const { setView } = useApp();
   const [loading, setLoading] = useState<'none' | 'overdue' | 'revenue' | 'dre'>('none');
   
   const [revenueDateRange, setRevenueDateRange] = useState({
@@ -156,6 +157,7 @@ export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                   label="Data de Início"
                   value={revenueDateRange.start}
                   onChange={date => setRevenueDateRange(d => ({...d, start: date}))}
+                  smallLabel
                 />
             </div>
             <div className="flex-1 w-full">
@@ -164,6 +166,7 @@ export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                   label="Data de Fim"
                   value={revenueDateRange.end}
                   onChange={date => setRevenueDateRange(d => ({...d, end: date}))}
+                  smallLabel
                 />
             </div>
           </>
@@ -192,6 +195,7 @@ export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                   label="Data de Início"
                   value={dreDateRange.start}
                   onChange={date => setDreDateRange(d => ({...d, start: date}))}
+                  smallLabel
                 />
             </div>
             <div className="flex-1 w-full">
@@ -200,6 +204,7 @@ export const Reports: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                   label="Data de Fim"
                   value={dreDateRange.end}
                   onChange={date => setDreDateRange(d => ({...d, end: date}))}
+                  smallLabel
                 />
             </div>
             </>

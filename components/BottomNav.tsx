@@ -3,11 +3,9 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 // FIX: Import types from the corrected types.ts file.
 import { ViewState } from '../types';
 import { Dashboard, Users, DollarSign, Settings, ClipboardList, FileText, Plus, Folder, X, History, MessageSquare } from './Icons';
+import { useApp } from '../contexts/AppContext';
 
-interface BottomNavProps {
-  currentViewName: ViewState['name'];
-  setView: (view: ViewState) => void;
-}
+interface BottomNavProps {}
 
 const mainNavItems = {
   cadastros: {
@@ -34,7 +32,8 @@ const mainNavItems = {
 
 type ActiveMenu = 'cadastros' | 'gestao' | null;
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentViewName, setView }) => {
+export const BottomNav: React.FC<BottomNavProps> = () => {
+  const { setView } = useApp();
   const [activeMenu, setActiveMenu] = useState<ActiveMenu>(null);
   
   const handleMainMenuClick = (menu: ActiveMenu) => {

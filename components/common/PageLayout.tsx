@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, LoadingSpinner } from '../Icons';
 
@@ -67,80 +67,6 @@ export const SubmitButton: React.FC<SubmitButtonProps> = ({ isSubmitting, text, 
   </motion.button>
 );
 
-
-interface DateFieldProps {
-  id: string;
-  label: string;
-  value: string; // Expects YYYY-MM-DD
-  onChange: (value: string) => void; // Sends back YYYY-MM-DD
-  required?: boolean;
-  className?: string;
-}
-
-const formatDateForDisplay = (isoDate: string): string => {
-  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate.slice(0, 10))) {
-    return '';
-  }
-  const [year, month, day] = isoDate.slice(0, 10).split('-');
-  return `${day}/${month}/${year}`;
-};
-
-const parseDateFromDisplay = (displayDate: string): string => {
-  if (!displayDate || !/^\d{2}\/\d{2}\/\d{4}$/.test(displayDate)) {
-    return '';
-  }
-  const [day, month, year] = displayDate.split('/');
-  return `${year}-${month}-${day}`;
-};
-
-export const DateField: React.FC<DateFieldProps> = ({ id, label, value, onChange, required, className = '' }) => {
-  const [displayValue, setDisplayValue] = useState(formatDateForDisplay(value));
-
-  useEffect(() => {
-    setDisplayValue(formatDateForDisplay(value));
-  }, [value]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let input = e.target.value.replace(/\D/g, '');
-    let formatted = '';
-
-    if (input.length > 0) {
-      formatted = input.slice(0, 2);
-    }
-    if (input.length > 2) {
-      formatted += '/' + input.slice(2, 4);
-    }
-    if (input.length > 4) {
-      formatted += '/' + input.slice(4, 8);
-    }
-
-    setDisplayValue(formatted);
-
-    if (formatted.length === 10) {
-      const [day, month, year] = formatted.split('/').map(Number);
-      const dateObj = new Date(year, month - 1, day);
-      if (dateObj.getFullYear() === year && dateObj.getMonth() === month - 1 && dateObj.getDate() === day) {
-        onChange(parseDateFromDisplay(formatted));
-      }
-    }
-  };
-  
-  const labelClass = "block text-xs font-medium text-muted-foreground mb-1.5";
-  const inputClass = "w-full text-base p-2.5 rounded-lg bg-background dark:bg-dark-background border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all";
-
-  return (
-    <div>
-      <label htmlFor={id} className={labelClass}>{label}</label>
-      <input
-        type="text"
-        id={id}
-        value={displayValue}
-        onChange={handleInputChange}
-        placeholder="dd/mm/aaaa"
-        required={required}
-        className={`${inputClass} ${className}`}
-        maxLength={10}
-      />
-    </div>
-  );
-};
+export const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
+    <div className={`bg-muted dark:bg-dark-muted rounded-md animate-pulse ${className}`} />
+);

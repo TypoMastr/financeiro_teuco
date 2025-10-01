@@ -1,17 +1,14 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Fingerprint, Lock, ClubLogo } from './Icons';
 import { useToast } from './Notifications';
-
-interface LockScreenProps {
-  onUnlock: () => void;
-}
+import { useApp } from '../contexts/AppContext';
 
 const CORRECT_PASSWORD = 'umbanda396';
 const BIOMETRY_CREDENTIAL_KEY = 'biometry_credential_id_v1';
 
-export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
+export const LockScreen: React.FC = () => {
+  const { unlockApp } = useApp();
   const [password, setPassword] = useState('');
   const [isError, setIsError] = useState(false);
   const [isBiometryRegistered, setIsBiometryRegistered] = useState(false);
@@ -26,7 +23,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (password === CORRECT_PASSWORD) {
-      setTimeout(onUnlock, 200);
+      setTimeout(unlockApp, 200);
     } else {
       setIsError(true);
       setTimeout(() => {
@@ -60,7 +57,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
       });
 
       if (credential) {
-        onUnlock();
+        unlockApp();
       }
     } catch (err: any) {
         console.error("Falha na autenticação biométrica:", err);
@@ -73,7 +70,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
              toast.error('Falha na autenticação. Tente a senha.');
         }
     }
-  }, [onUnlock, toast]);
+  }, [unlockApp, toast]);
 
   useEffect(() => {
     const checkAndTriggerBiometry = async () => {

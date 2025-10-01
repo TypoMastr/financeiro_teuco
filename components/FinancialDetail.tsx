@@ -3,7 +3,9 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ViewState, Transaction, Category } from '../types';
 import { getFinancialReport, categoriesApi } from '../services/api';
 import { ArrowLeft, Paperclip, MessageSquare, ChevronDown } from './Icons';
-import { DateField } from './common/PageLayout';
+// FIX: Changed import for DateField from './common/PageLayout' to './common/FormControls'
+import { DateField } from './common/FormControls';
+import { useApp } from '../contexts/AppContext';
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -118,7 +120,7 @@ const TransactionCard: React.FC<{
                                      <h4 className="font-bold mb-2 text-muted-foreground">Anexo:</h4>
                                      <button 
                                         onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }}
-                                        className="inline-flex items-center gap-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-3 rounded-md hover:bg-muted dark:hover:bg-dark-muted"
+                                        className="inline-flex items-center gap-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-3 rounded-md text-sm hover:bg-muted dark:hover:bg-dark-muted transition-colors"
                                      >
                                         <Paperclip className="h-4 w-4" />
                                         Ver Comprovante
@@ -136,8 +138,8 @@ const TransactionCard: React.FC<{
 // --- Main Component ---
 const FinancialDetail: React.FC<{
     viewState: ViewState;
-    setView: (view: ViewState) => void;
-}> = ({ viewState, setView }) => {
+}> = ({ viewState }) => {
+    const { setView } = useApp();
     // FIX: Correctly cast viewState to the specific discriminated union type to access its properties.
     const { filterType, filterId, filterName, componentState } = viewState as { name: 'financial-detail', filterType: 'category' | 'project' | 'tag', filterId: string, filterName: string, componentState?: any };
     const [loading, setLoading] = useState(true);

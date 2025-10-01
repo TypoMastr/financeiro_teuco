@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// FIX: Import `Variants` type from framer-motion to explicitly type animation variants.
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-// FIX: Import types from the corrected types.ts file.
 import { ViewState, LogEntry } from '../types';
 import { getLogs, undoLogAction } from '../services/api';
 import { History, Undo, X as XIcon, AlertTriangle } from './Icons';
 import { useToast } from './Notifications';
+import { useApp } from '../contexts/AppContext';
 
 const formatTimestamp = (isoDate: string) => {
     const date = new Date(isoDate);
@@ -73,7 +72,7 @@ const ConfirmationModal: React.FC<{
     );
 };
 
-export const LogPage: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
+export const LogPage: React.FC = () => {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const toast = useToast();
@@ -125,13 +124,11 @@ export const LogPage: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
         return groups;
     }, [logs]);
     
-    // FIX: Explicitly type variants object with `Variants` to satisfy TypeScript's strict type checking for framer-motion.
     const containerVariants: Variants = {
         hidden: { opacity: 0 },
         visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
     };
 
-    // FIX: Explicitly type variants object with `Variants` to satisfy TypeScript's strict type checking for framer-motion.
     const itemVariants: Variants = {
         hidden: { opacity: 0, y: 20 },
         visible: { opacity: 1, y: 0, transition: { type: 'spring' } },
@@ -165,13 +162,14 @@ export const LogPage: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                                                     <p className="font-semibold text-foreground dark:text-dark-foreground">{log.description}</p>
                                                     <p className="text-xs text-muted-foreground">{formatTimestamp(log.timestamp)}</p>
                                                 </div>
-                                                <motion.button 
-                                                    onClick={() => handleUndoClick(log)}
-                                                    className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-warning transition-colors"
-                                                    whileTap={{ scale: 0.95 }}
-                                                >
-                                                    <Undo className="h-4 w-4" /> Desfazer
-                                                </motion.button>
+                                                {log.undoData && (
+                                                    <button
+                                                        onClick={() => handleUndoClick(log)}
+                                                        className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-primary transition-colors"
+                                                    >
+                                                        <Undo className="h-4 w-4" /> Desfazer
+                                                    </button>
+                                                )}
                                             </motion.div>
                                         ))}
                                     </div>
@@ -179,21 +177,20 @@ export const LogPage: React.FC<{ setView: (view: ViewState) => void }> = ({ setV
                             ))
                         ) : (
                             <motion.div variants={itemVariants} className="text-center py-20 text-muted-foreground">
-                                <History className="h-12 w-12 mx-auto mb-4 text-primary" />
-                                <p className="font-semibold text-lg">Nenhuma atividade registrada.</p>
-                                <p>As alterações feitas no sistema aparecerão aqui.</p>
+                                <p>Nenhum registro de atividade encontrado.</p>
                             </motion.div>
                         )}
                     </div>
                 )}
             </div>
-            
-            {logToUndo && <ConfirmationModal 
-                isOpen={!!logToUndo}
-                onClose={() => setLogToUndo(null)}
-                onConfirm={handleConfirmUndo}
-                logEntry={logToUndo}
-            />}
+            {logToUndo && (
+                <ConfirmationModal
+                    isOpen={!!logToUndo}
+                    onClose={() => setLogToUndo(null)}
+                    onConfirm={handleConfirmUndo}
+                    logEntry={logToUndo}
+                />
+            )}
         </>
     );
 };

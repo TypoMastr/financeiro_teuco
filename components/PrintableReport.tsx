@@ -1,17 +1,11 @@
-
-
-
-
-
 import React from 'react';
 import { motion, Variants } from 'framer-motion';
-// FIX: Import types from the corrected types.ts file.
 import { ReportData, ViewState, Member, Transaction, Category, Payee, Account } from '../types';
 import { ArrowLeft, Printer, ClubLogo } from './Icons';
+import { useApp } from '../contexts/AppContext';
 
 interface PrintableReportProps {
   report: ReportData;
-  setView: (view: ViewState) => void;
 }
 
 const itemVariants: Variants = {
@@ -221,7 +215,8 @@ const DREReport: React.FC<{ data: any }> = ({ data }) => {
 };
 
 
-const PrintableReport: React.FC<PrintableReportProps> = ({ report, setView }) => {
+const PrintableReport: React.FC<PrintableReportProps> = ({ report }) => {
+  const { setView } = useApp();
   const { type, data, generatedAt } = report;
 
   const handlePrint = () => { window.print(); };

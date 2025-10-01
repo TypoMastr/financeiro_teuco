@@ -3,8 +3,9 @@ import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { ViewState, Transaction, Category, Tag, Project, Account } from '../types';
 import { getFinancialReport, categoriesApi, tagsApi, projectsApi, accountsApi, getAccountHistory } from '../services/api';
 import { ArrowLeft, Paperclip, ChevronDown, MessageSquare, ArrowRightLeft } from './Icons';
-import { DateField } from './common/PageLayout';
+import { DateField } from './common/FormControls';
 import { useToast } from './Notifications';
+import { useApp } from '../contexts/AppContext';
 
 // --- Helper Functions ---
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -118,7 +119,7 @@ const TransactionCard: React.FC<{
                                      <h4 className="font-bold mb-2 text-muted-foreground">Anexo:</h4>
                                      <button 
                                         onClick={(e) => { e.stopPropagation(); onViewAttachment(transaction.attachmentUrl!); }}
-                                        className="inline-flex items-center gap-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-3 rounded-md hover:bg-muted dark:hover:bg-dark-muted"
+                                        className="inline-flex items-center gap-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-2 px-3 rounded-md text-sm hover:bg-muted dark:hover:bg-dark-muted"
                                      >
                                         <Paperclip className="h-4 w-4" />
                                         Ver Comprovante
@@ -135,10 +136,8 @@ const TransactionCard: React.FC<{
 
 
 // --- Main Component ---
-export const TransactionHistory: React.FC<{
-    viewState: ViewState;
-    setView: (view: ViewState) => void;
-}> = ({ viewState, setView }) => {
+export const TransactionHistory: React.FC<{ viewState: ViewState }> = ({ viewState }) => {
+    const { setView } = useApp();
     const { accountId, componentState } = viewState as { name: 'transaction-history', accountId: string, componentState?: any };
     const [loading, setLoading] = useState(true);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -271,8 +270,8 @@ export const TransactionHistory: React.FC<{
                                 {allAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                             </select>
                         </FilterInput>
-                        <DateField id="startDate" label="Data Início" value={filters.startDate} onChange={date => setFilters(f => ({ ...f, startDate: date }))} />
-                        <DateField id="endDate" label="Data Fim" value={filters.endDate} onChange={date => setFilters(f => ({ ...f, endDate: date }))} />
+                        <DateField id="startDate" label="Data Início" value={filters.startDate} onChange={date => setFilters(f => ({ ...f, startDate: date }))} smallLabel />
+                        <DateField id="endDate" label="Data Fim" value={filters.endDate} onChange={date => setFilters(f => ({ ...f, endDate: date }))} smallLabel />
                         <FilterInput label="Tipo">
                             <select value={filters.type} onChange={e => setFilters(f => ({ ...f, type: e.target.value as 'income' | 'expense' | '' }))} className={inputClass}>
                                 <option value="">Todos</option>

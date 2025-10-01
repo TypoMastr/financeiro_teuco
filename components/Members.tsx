@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-// FIX: Import types from the corrected types.ts file.
-import { Member, PaymentStatus, ActivityStatus, SortOption, ViewState } from '../types';
-// FIX: Changed import from mockApi.ts to api.ts
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Member, PaymentStatus, ViewState } from '../types';
 import { getMembers } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Phone, DollarSign, ChevronRight, Search, UserPlus, Users } from './Icons';
+import { Phone, ChevronRight, Search, UserPlus, Users } from './Icons';
 import { AISummary } from './AISummary';
+import { useApp } from '../contexts/AppContext';
 
 const statusStyles: { [key in PaymentStatus]: { bg: string, text: string, ring: string, name: string } } = {
   [PaymentStatus.EmDia]: { bg: 'bg-green-100 dark:bg-green-500/10', text: 'text-green-700 dark:text-green-300', ring: 'ring-green-500/20', name: 'Em Dia' },
@@ -46,27 +45,20 @@ const overdueItemVariants: Variants = {
     visible: { opacity: 1, x: 0 },
 }
 
-// State subset for props, full type is in App.tsx
-interface MembersListStateSubset {
-  searchTerm: string;
-  filters: { status: string; activity: string; sort: SortOption };
-  expandedMemberId: string | null;
-}
-
 const MemberRow: React.FC<{ 
     member: Member; 
     onSelect: (id: string) => void; 
-    expandedMemberId: string | null;
-    setListState: React.Dispatch<React.SetStateAction<MembersListStateSubset & { scrollPosition: number }>>;
-    setView: (view: ViewState) => void; 
-}> = ({ member, onSelect, expandedMemberId, setListState, setView }) => {
+}> = ({ member, onSelect }) => {
+    const { membersListState, setMembersListState, setView } = useApp();
+    const { expandedMemberId } = membersListState;
+
     const status = statusStyles[member.paymentStatus];
     const isExpanded = expandedMemberId === member.id;
 
     const handleToggleExpand = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (member.overdueMonthsCount > 0) {
-            setListState(s => ({ ...s, expandedMemberId: isExpanded ? null : member.id }));
+            setMembersListState(s => ({ ...s, expandedMemberId: isExpanded ? null : member.id }));
         }
     };
 
@@ -173,89 +165,48 @@ const MemberRow: React.FC<{
     );
 };
 
-const FilterChip: React.FC<{ label: string, value: string, selected: boolean, onClick: () => void }> = ({ label, value, selected, onClick }) => (
-    <motion.button
-        onClick={onClick}
-        className={`px-3 py-1.5 sm:px-4 rounded-full text-sm font-semibold transition-all duration-200 border
-        ${selected
-            ? 'bg-primary/10 text-primary border-primary/20'
-            : 'bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted border-border dark:border-dark-border'
-        }`}
-        whileTap={{ scale: 0.95 }}
-    >
-        {label}
-    </motion.button>
-);
-
-interface MembersProps {
-  setView: (view: ViewState) => void;
-  listState: MembersListStateSubset;
-  setListState: React.Dispatch<React.SetStateAction<MembersListStateSubset & { scrollPosition: number }>>;
-}
-
-export const Members: React.FC<MembersProps> = ({ setView, listState, setListState }) => {
+export const Members: React.FC = () => {
+  const { setView, membersListState, setMembersListState } = useApp();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  const isInitialLoad = useRef(true);
-
-  const fetchData = useCallback(async (isUpdate = false) => {
-    if (!isUpdate) {
-        setLoading(true);
-    }
-    try {
-        const data = await getMembers();
-        setMembers(data);
-    } catch (error) {
-        console.error("Failed to fetch members", error);
-    } finally {
-        if (!isUpdate || isInitialLoad.current) {
-            setLoading(false);
-            isInitialLoad.current = false;
-        }
-    }
-  }, []);
+  const { searchTerm, filters } = membersListState;
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => fetchData(true), 30000); // Auto-refresh in background
-    return () => clearInterval(interval);
-  }, [fetchData]);
-
-  const { searchTerm, filters, expandedMemberId } = listState;
-
-  const filteredAndSortedMembers = useMemo(() => {
-    return members
-      .filter(member => {
-        // Filter by search term
-        const searchMatch = member.name.toLowerCase().includes(searchTerm.toLowerCase());
-        if (!searchMatch) return false;
-
-        // Filter by activity status
-        let activityMatch = false;
-        if (filters.activity === 'OnLeave') {
-            activityMatch = member.onLeave === true;
-        } else if (filters.activity === 'all') {
-            activityMatch = member.activityStatus !== 'Arquivado';
-        } else {
-            activityMatch = member.activityStatus === filters.activity;
+    let isCancelled = false;
+    
+    const fetchData = async (showSpinner: boolean) => {
+      if (showSpinner) setLoading(true);
+      try {
+        const data = await getMembers({
+          searchTerm,
+          status: filters.status,
+          activity: filters.activity,
+          sort: filters.sort,
+        });
+        if (!isCancelled) {
+          setMembers(data);
         }
-        if (!activityMatch) return false;
+      } catch (error) {
+        console.error("Failed to fetch members", error);
+      } finally {
+        if (showSpinner && !isCancelled) setLoading(false);
+      }
+    };
+    
+    fetchData(true); // Fetch com spinner na mudança de filtro
 
-        // Filter by payment status
-        if (filters.status !== 'all') {
-          return member.paymentStatus === filters.status;
-        }
-        
-        return true;
-      })
-      .sort((a, b) => {
-        if (filters.sort === 'name_asc') return a.name.localeCompare(b.name);
-        return b.name.localeCompare(a.name);
-      });
-  }, [members, filters, searchTerm]);
+    const interval = setInterval(() => fetchData(false), 30000); // Refresh em background sem spinner
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [searchTerm, filters]);
+
+  const filteredAndSortedMembers = members;
   
   const handleActivityFilterChange = (activityValue: string) => {
-    setListState(s => ({ ...s, filters: { ...s.filters, activity: activityValue }, status: 'all', expandedMemberId: null }));
+    setMembersListState(s => ({ ...s, filters: { ...s.filters, activity: activityValue }, status: 'all', expandedMemberId: null }));
   };
 
   const containerVariants: Variants = {
@@ -301,7 +252,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
                             placeholder="Buscar por nome..."
                             className="w-full text-base p-3 pl-12 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all"
                             value={searchTerm}
-                            onChange={e => setListState(s => ({...s, searchTerm: e.target.value}))}
+                            onChange={e => setMembersListState(s => ({...s, searchTerm: e.target.value}))}
                         />
                     </div>
                      <div className="hidden sm:grid sm:grid-cols-3 gap-3">
@@ -324,7 +275,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
                             <label className="text-xs font-semibold text-muted-foreground ml-1 mb-1 block">Pagamento</label>
                             <select
                                 value={filters.status}
-                                onChange={(e) => setListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
+                                onChange={(e) => setMembersListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
                                 className={selectClass}
                             >
                                 <option value="all">Todos</option>
@@ -363,7 +314,7 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
                  </select>
                  <select
                     value={filters.status}
-                    onChange={(e) => setListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
+                    onChange={(e) => setMembersListState(s => ({...s, filters: { ...s.filters, status: e.target.value}}))}
                     className="w-full text-base p-2.5 rounded-lg bg-card dark:bg-dark-card border border-border dark:border-dark-border focus:ring-2 focus:ring-primary focus:outline-none transition-all appearance-none"
                  >
                     <option value="all">Todos Pagamentos</option>
@@ -387,9 +338,6 @@ export const Members: React.FC<MembersProps> = ({ setView, listState, setListSta
                                     key={member.id}
                                     member={member} 
                                     onSelect={(id) => setView({ name: 'member-profile', id })}
-                                    expandedMemberId={expandedMemberId}
-                                    setListState={setListState}
-                                    setView={setView}
                                 />
                             ))
                         ) : (

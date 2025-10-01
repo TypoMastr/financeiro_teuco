@@ -4,6 +4,7 @@ import { getDashboardStats, getHistoricalMonthlySummary } from '../services/api'
 import { Stats, ViewState } from '../types';
 import { TrendingUp, TrendingDown, Wallet, Scale, ChevronDown, Users, PieChart, DollarSign } from './Icons';
 import { AISummary } from './AISummary';
+import { useApp } from '../contexts/AppContext';
 
 
 // --- Animation Variants ---
@@ -38,7 +39,8 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.Re
   </motion.div>
 );
 
-export const Overview: React.FC<{ setView: (view: ViewState) => void }> = ({ setView }) => {
+export const Overview: React.FC = () => {
+  const { setView } = useApp();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [historicalData, setHistoricalData] = useState<{ month: string, income: number, expense: number }[]>([]);

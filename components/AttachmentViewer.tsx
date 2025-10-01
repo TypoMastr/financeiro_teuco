@@ -3,13 +3,14 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Download, Share2 } from './Icons';
 import { ViewState } from '../types';
 import { useToast } from './Notifications';
+import { useApp } from '../contexts/AppContext';
 
 interface AttachmentViewProps {
     viewState: ViewState;
-    setView: (view: ViewState) => void;
 }
 
-export const AttachmentViewer: React.FC<AttachmentViewProps> = ({ viewState, setView }) => {
+export const AttachmentViewer: React.FC<AttachmentViewProps> = ({ viewState }) => {
+    const { setView } = useApp();
     const { attachmentUrl, returnView } = viewState as { name: 'attachment-view', attachmentUrl: string, returnView: ViewState };
     const toast = useToast();
 

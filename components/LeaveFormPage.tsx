@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ViewState, Member, Leave } from '../types';
 import { getMemberById, leavesApi } from '../services/api';
-import { PageHeader, SubmitButton, DateField } from './common/PageLayout';
+import { PageHeader, SubmitButton } from './common/PageLayout';
+import { DateField } from './common/FormControls';
 import { useToast } from './Notifications';
+import { useApp } from '../contexts/AppContext';
 
-export const LeaveFormPage: React.FC<{ viewState: ViewState; setView: (view: ViewState) => void; }> = ({ viewState, setView }) => {
+export const LeaveFormPage: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
+    const { setView } = useApp();
     const { memberId, leaveId, returnView } = viewState as { name: 'leave-form', memberId: string, leaveId?: string, returnView: ViewState };
     const isEditMode = !!leaveId;
     const [loading, setLoading] = useState(true);
@@ -108,6 +111,7 @@ export const LeaveFormPage: React.FC<{ viewState: ViewState; setView: (view: Vie
                             value={formState.startDate}
                             onChange={date => setFormState(s => ({ ...s, startDate: date }))}
                             required
+                            smallLabel
                         />
                     </div>
                     <div>
@@ -116,6 +120,7 @@ export const LeaveFormPage: React.FC<{ viewState: ViewState; setView: (view: Vie
                             label="Data Final (Opcional)"
                             value={formState.endDate}
                             onChange={date => setFormState(s => ({ ...s, endDate: date }))}
+                            smallLabel
                         />
                     </div>
                 </div>

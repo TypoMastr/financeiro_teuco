@@ -1,156 +1,111 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Members } from './components/Members';
-import MemberProfile, { PaymentFormPage, PaymentEditFormPage } from './components/MemberProfile';
+import MemberProfile from './components/MemberProfile';
+import { PaymentFormPage } from './components/MemberPaymentForm';
+import { PaymentEditFormPage } from './components/MemberPaymentEditForm';
 import MemberForm from './components/MemberForm';
 import PrintableReport from './components/PrintableReport';
-// FIX: Corrected import to be a named import as Financial is not exported by default, and added FutureIncomePage.
-import { Financial, TransactionFormPage, ReportFiltersPage, FutureIncomePage, TransactionViewerPage, TransferFormPage } from './components/Financial';
-import { Settings, SettingsItemFormPage, SettingsListPage } from './components/Settings';
+import { Financial } from './components/Financial';
+import { TransactionFormPage } from './components/FinancialTransactionForm';
+import { ReportFiltersPage } from './components/FinancialReportFilters';
+import { FutureIncomePage } from './components/FinancialFutureIncome';
+import { TransactionViewerPage } from './components/FinancialTransactionViewer';
+import { TransferFormPage } from './components/FinancialTransferForm';
+import { Settings } from './components/Settings';
+import { SettingsItemFormPage } from './components/SettingsItemForm';
+import { SettingsListPage } from './components/SettingsListPage';
 import FinancialDetail from './components/FinancialDetail';
 import { TransactionHistory } from './components/TransactionHistory';
-// FIX: Import MotionProps to explicitly type animation properties, resolving a TypeScript error.
 import { motion, AnimatePresence, MotionProps } from 'framer-motion';
-// FIX: Import ViewState from the corrected types.ts file.
-import { ViewState, SortOption } from './types';
+import { ViewState } from './types';
 import { BottomNav } from './components/BottomNav';
 import { Reports } from './components/Reports';
-// FIX: Changed import to be a named import as AccountsPayable is not a default export.
-import { AccountsPayable, BillFormPage, PayBillPage, DeleteBillConfirmationPage } from './components/AccountsPayable';
+import { AccountsPayable } from './components/AccountsPayable';
+import { BillFormPage } from './components/AccountsPayableBillForm';
+import { PayBillPage } from './components/AccountsPayablePayBill';
+import { DeleteBillConfirmationPage } from './components/AccountsPayableDeleteBillConfirmation';
 import { Overview } from './components/Overview';
 import { AttachmentViewer } from './components/AttachmentViewer';
-// FIX: Added ToastContainer to the import as it is now correctly exported.
 import { ToastProvider, ToastContainer } from './components/Notifications';
 import { BatchTransactionFormPage, OfxImportFormPage } from './components/BatchOperations';
 import { LogPage } from './components/LogPage';
 import { LockScreen } from './components/LockScreen';
 import { Chatbot } from './components/Chatbot';
 import { LeaveFormPage } from './components/LeaveFormPage';
+import { AppProvider, useApp } from './contexts/AppContext';
 
-// Define the shape of the Members list state
-interface MembersListState {
-  searchTerm: string;
-  filters: { status: string; activity: string; sort: SortOption };
-  expandedMemberId: string | null;
-  scrollPosition: number;
-}
-
-
-const App: React.FC = () => {
-  const [isLocked, setIsLocked] = useState(true);
-  const [view, setView] = useState<ViewState>({ name: 'overview' });
-  
-  // State for Members list view, managed here to persist across navigation
-  const [membersListState, setMembersListState] = useState<MembersListState>({
-    searchTerm: '',
-    filters: { status: 'all', activity: 'Ativo', sort: 'name_asc' },
-    expandedMemberId: null,
-    scrollPosition: 0
-  });
-  
-  const mainRef = useRef<HTMLElement>(null);
-
-  const handleUnlock = () => {
-    setIsLocked(false);
-  };
-
-  const handleLock = () => {
-    setView({ name: 'overview' }); // Redefine a visualização ao bloquear
-    setIsLocked(true);
-  };
-
-  // Custom setView function to save state before navigating
-  const handleSetView = (newView: ViewState) => {
-    if (view.name === 'members' && mainRef.current) {
-      // Save scroll position before navigating away from members list
-      setMembersListState(s => ({ ...s, scrollPosition: mainRef.current!.scrollTop }));
-    }
-    setView(newView);
-  };
-
-  // Restore scroll position when navigating back to members list
-  useLayoutEffect(() => {
-    if (view.name === 'members' && mainRef.current) {
-        mainRef.current.scrollTop = membersListState.scrollPosition;
-    }
-  }, [view.name]);
-
+const AppUI: React.FC = () => {
+  const { view, mainRef, isLocked } = useApp();
 
   const renderView = () => {
     switch (view.name) {
       case 'overview':
-        return <Overview setView={handleSetView} />;
+        return <Overview />;
       case 'members':
-        return <Members 
-            setView={handleSetView} 
-            listState={membersListState}
-            setListState={setMembersListState}
-        />;
+        return <Members />;
       case 'member-profile':
-        if (!view.id) return <Members setView={handleSetView} listState={membersListState} setListState={setMembersListState} />;
-        return <MemberProfile viewState={view} setView={handleSetView} />;
+        if (!view.id) return <Members />;
+        return <MemberProfile viewState={view} />;
       case 'add-member':
-        return <MemberForm setView={handleSetView} />;
+        return <MemberForm />;
       case 'edit-member':
-        if (!view.id) return <Members setView={handleSetView} listState={membersListState} setListState={setMembersListState} />;
-        return <MemberForm memberId={view.id} setView={handleSetView} />;
+        if (!view.id) return <Members />;
+        return <MemberForm memberId={view.id} />;
       case 'financial':
-        return <Financial viewState={view} setView={handleSetView} />;
+        return <Financial viewState={view} />;
       case 'accounts-payable':
-        return <AccountsPayable viewState={view} setView={handleSetView} />;
+        return <AccountsPayable viewState={view} />;
       case 'settings':
-        return <Settings setView={handleSetView} onLock={handleLock} />;
+        return <Settings />;
       case 'reports':
-        return <Reports setView={handleSetView} />;
+        return <Reports />;
       case 'log':
-        return <LogPage setView={handleSetView} />;
+        return <LogPage />;
       case 'report-view':
-        if (!view.report) return <Reports setView={handleSetView} />;
-        return <PrintableReport report={view.report} setView={handleSetView} />;
+        if (!view.report) return <Reports />;
+        return <PrintableReport report={view.report} />;
       case 'transaction-history':
-        return <TransactionHistory viewState={view} setView={handleSetView} />;
+        return <TransactionHistory viewState={view} />;
       case 'financial-detail':
-        if (!view.filterType || !view.filterId || !view.filterName) return <Financial viewState={{ name: 'financial' }} setView={handleSetView} />;
-        return <FinancialDetail viewState={view} setView={handleSetView} />;
-      
-      // New Page Views (replacing modals)
+        if (!view.filterType || !view.filterId || !view.filterName) return <Financial viewState={{ name: 'financial' }} />;
+        return <FinancialDetail viewState={view} />;
       case 'payment-form':
-        return <PaymentFormPage viewState={view} setView={handleSetView} />;
+        return <PaymentFormPage viewState={view} />;
       case 'edit-payment-form':
-        return <PaymentEditFormPage viewState={view} setView={handleSetView} />;
+        return <PaymentEditFormPage viewState={view} />;
       case 'transaction-form':
-        return <TransactionFormPage viewState={view} setView={handleSetView} />;
+        return <TransactionFormPage viewState={view} />;
       case 'transaction-view':
-        return <TransactionViewerPage viewState={view} setView={handleSetView} />;
+        return <TransactionViewerPage viewState={view} />;
       case 'financial-report-form':
-        return <ReportFiltersPage viewState={view} setView={handleSetView} />;
+        return <ReportFiltersPage viewState={view} />;
       case 'future-income-view':
-        return <FutureIncomePage viewState={view} setView={handleSetView} />;
+        return <FutureIncomePage viewState={view} />;
       case 'setting-item-form':
-        return <SettingsItemFormPage viewState={view} setView={handleSetView} />;
+        return <SettingsItemFormPage viewState={view} />;
       case 'setting-list':
-        return <SettingsListPage viewState={view} setView={handleSetView} />;
+        return <SettingsListPage viewState={view} />;
       case 'bill-form':
-        return <BillFormPage viewState={view} setView={handleSetView} />;
+        return <BillFormPage viewState={view} />;
       case 'pay-bill-form':
-        return <PayBillPage viewState={view} setView={handleSetView} />;
+        return <PayBillPage viewState={view} />;
       case 'delete-bill-confirmation':
-        return <DeleteBillConfirmationPage viewState={view} setView={handleSetView} />;
+        return <DeleteBillConfirmationPage viewState={view} />;
       case 'attachment-view':
-          return <AttachmentViewer viewState={view} setView={handleSetView} />;
+          return <AttachmentViewer viewState={view} />;
       case 'batch-transaction-form':
-          return <BatchTransactionFormPage viewState={view} setView={handleSetView} />;
+          return <BatchTransactionFormPage viewState={view} />;
       case 'ofx-import-form':
-          return <OfxImportFormPage viewState={view} setView={handleSetView} />;
+          return <OfxImportFormPage viewState={view} />;
       case 'leave-form':
-          return <LeaveFormPage viewState={view} setView={handleSetView} />;
+          return <LeaveFormPage viewState={view} />;
       case 'transfer-form':
-          return <TransferFormPage viewState={view} setView={handleSetView} />;
+          return <TransferFormPage viewState={view} />;
       case 'chatbot':
-          return <Chatbot setView={handleSetView} />;
-
+          return <Chatbot />;
       default:
-        return <Overview setView={handleSetView}/>;
+        return <Overview />;
     }
   };
   
@@ -163,7 +118,6 @@ const App: React.FC = () => {
   
   const noAnimation = view.name === 'transaction-history' || view.name === 'transaction-form';
   
-  // FIX: Explicitly typed `animationProps` with `MotionProps` to prevent TypeScript from inferring `ease` as a generic `string`, which caused a type error.
   const animationProps: MotionProps = noAnimation
     ? {
         initial: { opacity: 1, y: 0 },
@@ -180,12 +134,10 @@ const App: React.FC = () => {
     
   const isChatbotView = view.name === 'chatbot';
 
-
   return (
-    <ToastProvider>
       <AnimatePresence mode="wait">
         {isLocked ? (
-          <LockScreen key="lockscreen" onUnlock={handleUnlock} />
+          <LockScreen key="lockscreen" />
         ) : (
           <motion.div
             key="app-wrapper"
@@ -194,10 +146,7 @@ const App: React.FC = () => {
             transition={{ duration: 0.4, ease: 'easeOut' }}
             className="flex h-full bg-background dark:bg-dark-background text-foreground dark:text-dark-foreground"
           >
-            <Sidebar 
-              currentViewName={view.name}
-              setView={handleSetView} 
-            />
+            <Sidebar />
             
             <main ref={mainRef} className={`flex-1 custom-scrollbar p-4 sm:p-6 lg:p-8 pb-24 lg:pb-6 ${isChatbotView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
               <AnimatePresence mode="wait">
@@ -211,13 +160,19 @@ const App: React.FC = () => {
               </AnimatePresence>
             </main>
 
-            <BottomNav 
-              currentViewName={view.name}
-              setView={handleSetView}
-            />
+            <BottomNav />
           </motion.div>
         )}
       </AnimatePresence>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <ToastProvider>
+      <AppProvider>
+        <AppUI />
+      </AppProvider>
       <ToastContainer />
     </ToastProvider>
   );
