@@ -268,6 +268,7 @@ const isDuringLeave = (date: Date, leaves: Leave[]): boolean => {
         if (isNaN(startDate.getTime())) return false;
 
         if (endDate) {
+            if (isNaN(endDate.getTime())) return false;
             const endOfDay = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999));
             return date >= startDate && date <= endOfDay;
         }
@@ -286,6 +287,7 @@ const isCurrentlyOnLeave = (leaves: Leave[]): boolean => {
         if (isNaN(startDate.getTime())) return false;
 
         if (endDate) {
+            if (isNaN(endDate.getTime())) return false;
             const endOfDay = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate(), 23, 59, 59, 999));
             return todayUTC >= startDate && todayUTC <= endOfDay;
         }
@@ -327,6 +329,18 @@ const calculateMemberDetails = (member: any, memberPayments: Payment[], memberLe
     const firstOfCurrentMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
 
     let currentDate = getUTCDateFromStr(memberWithDefaults.joinDate);
+
+    if (isNaN(currentDate.getTime())) {
+        console.warn(`Member "${memberWithDefaults.name}" (ID: ${memberWithDefaults.id}) has an invalid joinDate: "${memberWithDefaults.joinDate}". Skipping overdue calculation.`);
+        return {
+            ...memberWithDefaults,
+            paymentStatus: memberWithDefaults.isExempt ? PaymentStatus.Isento : PaymentStatus.EmDia,
+            overdueMonthsCount: 0,
+            overdueMonths: [],
+            totalDue: 0,
+        };
+    }
+
     currentDate.setUTCDate(1); // Garante que a verificação comece no primeiro dia do mês de adesão.
     
     const finalStatuses = ['Desligado', 'Arquivado'];

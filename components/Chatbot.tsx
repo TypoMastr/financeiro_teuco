@@ -13,17 +13,32 @@ interface Message {
     text: string;
 }
 
-const MessageContent: React.FC<{ text: string }> = ({ text }) => {
+const MessageContent: React.FC<{ text: string; onSuggestionClick: (text: string) => void }> = ({ text, onSuggestionClick }) => {
     const { setView } = useApp();
-    // Regex to find **bold** text or [attachment links](url)
-    const parts = text.split(/(\*\*.*?\*\*)|(\[VISUALIZAR COMPROVANTE\]\(.*?\))/g);
+    // This regex creates a single capturing group containing all alternatives.
+    // This makes `split` return a simple array of [text, delimiter, text, delimiter, ...].
+    const parts = text.split(/(\[SUGGESTION:.*?\]|\[VISUALIZAR COMPROVANTE\]\(.*?\)|\*\*.*?\*\*)/g);
 
     return (
         <div className="text-sm leading-relaxed whitespace-pre-wrap">
             {parts.map((part, index) => {
                 if (!part) return null;
 
-                // Check for attachment link
+                const suggestionMatch = part.match(/\[SUGGESTION:(.*?)\]/);
+                if (suggestionMatch) {
+                    const suggestionText = suggestionMatch[1];
+                    return (
+                         <motion.button
+                            key={index}
+                            onClick={() => onSuggestionClick(suggestionText)}
+                            className="inline-flex items-center gap-2 mt-2 mr-2 bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground font-semibold py-1.5 px-3 rounded-lg text-sm hover:bg-muted dark:hover:bg-dark-muted transition-colors border border-border dark:border-dark-border"
+                            whileTap={{ scale: 0.95 }}
+                        >
+                            {suggestionText}
+                        </motion.button>
+                    );
+                }
+
                 const attachmentMatch = part.match(/\[VISUALIZAR COMPROVANTE\]\((.*?)\)/);
                 if (attachmentMatch) {
                     const url = attachmentMatch[1];
@@ -42,13 +57,11 @@ const MessageContent: React.FC<{ text: string }> = ({ text }) => {
                     }
                 }
 
-                // Check for bold text
                 const boldMatch = part.match(/\*\*(.*?)\*\*/);
                 if (boldMatch) {
                     return <strong key={index}>{boldMatch[1]}</strong>;
                 }
 
-                // Return plain text
                 return part;
             })}
         </div>
@@ -104,6 +117,15 @@ Responda às perguntas do usuário baseando-se *exclusivamente* nesses dados. Se
 *   **Dias da Semana:** Você também pode fazer uma referência sutil ao Orixá do dia da semana, se parecer natural. Por exemplo, em uma quinta-feira: "Okê Arô! Que a prosperidade de Oxóssi esteja conosco hoje, Mãe Leodeth."
 *   **Enriquecimento:** Use o conhecimento sobre a Umbanda para deixar a conversa mais rica e natural, não apenas para responder perguntas diretas. Se o assunto for justiça, uma menção a Xangô é bem-vinda. Se for sobre caminhos, Exu ou Ogum podem ser citados. Faça isso de forma sutil.
 
+**AÇÕES E SUGESTÕES PROATIVAS:**
+1.  **Sugestões Contextuais:** Ao final de **cada** resposta, ofereça 2 ou 3 ações rápidas como sugestões, usando o formato \`[SUGGESTION:Texto da Ação]\`.
+2.  **Base para Sugestões:** As sugestões devem ser o próximo passo lógico da conversa.
+    *   Se listar membros pendentes, sugira ver o perfil de um deles: \`[SUGGESTION:Ver detalhes de Fulano]\`.
+    *   Se mostrar o saldo de uma conta, sugira ver o extrato: \`[SUGGESTION:Ver extrato da conta Principal]\`.
+    *   Se responder sobre uma despesa, sugira ver outras da mesma categoria: \`[SUGGESTION:Listar todas as despesas de 'Manutenção']\`.
+    *   Se a resposta for sobre um Orixá, sugira perguntar sobre outro relacionado: \`[SUGGESTION:Quem é Xangô?]\`.
+3.  **Sugestões Gerais:** Se não houver um próximo passo óbvio, ofereça sugestões gerais úteis como \`[SUGGESTION:Qual o resumo financeiro do mês?]\` ou \`[SUGGESTION:Ver contas a pagar vencidas]\`.
+
 **REGRAS DE COMUNICAÇÃO E FORMATAÇÃO:**
 1.  **Geral:** Seja conciso, amigável e use emojis para tornar a leitura mais agradável.
 2.  **Negrito:** Use **negrito** (com dois asteriscos) para destacar informações importantes como valores, totais, nomes, datas e status.
@@ -128,13 +150,13 @@ Responda às perguntas do usuário baseando-se *exclusivamente* nesses dados. Se
 8.  **Lógica:** Lembre-se que contas a pagar, mesmo que já tenham sido pagas, são **SAÍDAS** (despesas), não entradas.
 9.  **Consulta de Contas a Pagar:** Ao ser questionado sobre "contas a pagar" ou se "as contas estão em dia", sua prioridade é verificar as contas com vencimento no **mês atual e nos meses passados**. Não liste contas futuras a menos que a usuária peça especificamente por elas (ex: "quais as contas do próximo mês?"). Filtre as contas com status 'pending' ou 'overdue'.
 10. **Confirmação:** Antes de executar uma ação baseada em uma interpretação, confirme com o usuário. Ex: "Você confirma que deseja registrar a entrada de R$ 100,00 feita por Pedro? ✅"
-// FIX: Clarified prompt instructions for member data fields to avoid AI confusion, which was the likely root cause of the reported error.
 11. **Dados Completos:** Você tem acesso ao histórico completo de todos os membros. Cada objeto de membro contém os seguintes campos para entender seu status e afastamentos:
     *   \`activityStatus\`: Indica se o membro está **"Ativo"**, **"Inativo"** ou **"Desligado"**.
     *   \`paymentStatus\`: Mostra o status de pagamento, como **"Em Dia"**, **"Atrasado"**, **"Isento"** ou **"Em Licença"**.
     *   \`historicoLicencas\`: É uma lista de objetos, onde cada um representa um período de licença com os campos \`dataInicio\`, \`dataFim\` e \`motivo\`.
     Sempre forneça informações completas quando solicitado sobre esses membros, especialmente sobre os que estão isentos, desligados ou em licença.
 12. **Ordenação de Listas:** Ao apresentar listas de informações (como membros pendentes ou transações), organize-as de forma lógica. Para listas de nomes, use **ordem alfabética**. Para listas com datas, como meses pendentes ou histórico de pagamentos, use a **ordem cronológica**, do mais antigo para o mais recente.
+13. **Formatação de Datas:** Sempre que você mencionar uma data no formato AAAA-MM-DD (ex: "2025-01-01"), formate-a para o padrão brasileiro por extenso (ex: "01 de janeiro de 2025").
 
 **BASE DE CONHECIMENTO ADICIONAL (REFERÊNCIAS RELIGIOSAS):**
 Você deve considerar o seguinte conjunto de conhecimentos como referência confiável para responder perguntas sobre a Umbanda, seus Orixás, linhas espirituais e datas comemorativas.
@@ -286,19 +308,39 @@ const CHAT_HISTORY_KEY = 'chatbot_history_v1';
 
 const getGreeting = (): string => {
     const hour = new Date().getHours();
+    const suggestions = "\n\n[SUGGESTION:Qual o saldo total das contas?]\n[SUGGESTION:Ver membros com mensalidades pendentes]";
+    
     if (hour >= 5 && hour < 12) {
-        return "Bom dia, Mãe Leodeth! Sou o ChatGPTeuco. Em que posso ajudar hoje?";
+        return "Bom dia, Mãe Leodeth! Sou o ChatGPTeuco. Em que posso ajudar hoje?" + suggestions;
     }
     if (hour >= 12 && hour < 18) {
-        return "Boa tarde, Mãe Leodeth! Sou o ChatGPTeuco. Pronta para organizar as finanças?";
+        return "Boa tarde, Mãe Leodeth! Sou o ChatGPTeuco. Pronta para organizar as finanças?" + suggestions;
     }
     if (hour >= 18 && hour < 24) {
-        return "Boa noite, Mãe Leodeth! Sou o ChatGPTeuco. Vamos ver como estão as coisas?";
+        return "Boa noite, Mãe Leodeth! Sou o ChatGPTeuco. Vamos ver como estão as coisas?" + suggestions;
     }
-    // Madrugada (00:00 to 04:59)
-    return "Mãe Leodeth?! Trabalhando até essa hora? 🦉 A energia não para por aqui! Sou o ChatGPTeuco, como posso ajudar na madrugada?";
+    return "Mãe Leodeth?! Trabalhando até essa hora? 🦉 A energia não para por aqui! Sou o ChatGPTeuco, como posso ajudar na madrugada?" + suggestions;
 };
 
+const TypingIndicator = () => (
+    <div className="flex items-center gap-1.5 p-1">
+      <motion.div
+        className="w-2 h-2 bg-muted-foreground rounded-full"
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0 }}
+      />
+      <motion.div
+        className="w-2 h-2 bg-muted-foreground rounded-full"
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+      />
+      <motion.div
+        className="w-2 h-2 bg-muted-foreground rounded-full"
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+      />
+    </div>
+);
 
 export const Chatbot: React.FC = () => {
     const { setView } = useApp();
@@ -349,13 +391,12 @@ export const Chatbot: React.FC = () => {
         toast.info("A conversa foi reiniciada.");
     };
 
-    const handleSend = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!input.trim() || isTyping || !ai) return;
+    const handleSend = async (textToSend: string) => {
+        if (!textToSend.trim() || isTyping || !ai) return;
 
-        const userMessage: Message = { sender: 'user', text: input };
-        setMessages(prev => [...prev, userMessage]);
-        setInput('');
+        const userMessage: Message = { sender: 'user', text: textToSend };
+        const currentMessages = [...messages, userMessage];
+        setMessages(currentMessages);
         setIsTyping(true);
         
         try {
@@ -364,24 +405,40 @@ export const Chatbot: React.FC = () => {
                 contextDataCache.current = await getChatbotContextData();
                 setIsFetchingContext(false);
             }
+            
+            const historyForPrompt = currentMessages
+                .slice(-8) // Use last 8 messages for context
+                .map(msg => `${msg.sender === 'user' ? 'Usuário' : 'Assistente'}: ${msg.text}`)
+                .join('\n\n');
 
             const prompt = `
+                --- HISTÓRICO RECENTE ---
+                ${historyForPrompt}
+                ---
+                
                 DADOS FINANCEIROS ATUAIS (JSON):
                 ${JSON.stringify(contextDataCache.current, null, 2)}
 
                 ---
-                PERGUNTA DO USUÁRIO:
-                "${userMessage.text}"
+                PERGUNTA ATUAL DO USUÁRIO:
+                "${textToSend}"
             `;
             
-            const response = await ai.models.generateContent({
+            setMessages(prev => [...prev, { sender: 'ai', text: '' }]);
+
+            const responseStream = await ai.models.generateContentStream({
                 model: 'gemini-2.5-flash',
                 contents: [{ parts: [{ text: prompt }] }],
                 config: { systemInstruction },
             });
             
-            const aiMessage: Message = { sender: 'ai', text: response.text };
-            setMessages(prev => [...prev, aiMessage]);
+            for await (const chunk of responseStream) {
+                setMessages(prev => {
+                    const newMessages = [...prev];
+                    newMessages[newMessages.length - 1].text += chunk.text;
+                    return newMessages;
+                });
+            }
 
         } catch (error: any) {
             console.error("Error calling Gemini API:", error);
@@ -393,10 +450,21 @@ export const Chatbot: React.FC = () => {
         }
     };
     
+    const handleFormSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const textToSend = input;
+        setInput('');
+        handleSend(textToSend);
+    };
+
+    const handleSuggestionClick = (suggestionText: string) => {
+        handleSend(suggestionText);
+    };
+    
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            handleSend(e as any);
+            handleFormSubmit(e as any);
         }
     };
 
@@ -413,14 +481,15 @@ export const Chatbot: React.FC = () => {
                         <motion.div
                             key={index}
                             layout
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
+                            initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.8, y: -10 }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
                             className={`flex items-end gap-2 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                         >
                             {msg.sender === 'ai' && <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center"><MessageSquare className="h-5 w-5" /></div>}
                             <div className={`max-w-[85%] p-3 rounded-2xl ${msg.sender === 'user' ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-md'}`}>
-                                <MessageContent text={msg.text} />
+                                <MessageContent text={msg.text} onSuggestionClick={handleSuggestionClick} />
                             </div>
                             {msg.sender === 'user' && <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted dark:bg-dark-muted flex items-center justify-center text-muted-foreground"><User className="h-5 w-5" /></div>}
                         </motion.div>
@@ -429,14 +498,14 @@ export const Chatbot: React.FC = () => {
                 {(isTyping || isFetchingContext) && (
                     <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-end gap-2 justify-start">
                         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center"><MessageSquare className="h-5 w-5" /></div>
-                        <div className="max-w-[85%] p-3 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-md text-sm text-muted-foreground">
-                            {isFetchingContext ? 'Consultando os dados do terreiro...' : 'Digitando...'}
+                        <div className="max-w-[85%] px-3 py-1 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border rounded-bl-md text-sm text-muted-foreground">
+                            {isFetchingContext ? 'Consultando os dados...' : <TypingIndicator />}
                         </div>
                     </motion.div>
                 )}
             </div>
             <div className="flex-shrink-0 pt-2">
-                <form onSubmit={handleSend} className="flex items-end gap-2 max-w-2xl mx-auto">
+                <form onSubmit={handleFormSubmit} className="flex items-end gap-2 max-w-2xl mx-auto">
                     <textarea
                         ref={textareaRef}
                         value={input}
