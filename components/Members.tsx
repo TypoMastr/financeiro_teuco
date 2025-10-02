@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Member, PaymentStatus, ViewState } from '../types';
-import { getMembers } from '../services/api';
+import { Member, PaymentStatus, ViewState, OverdueMonth } from '../types';
+import { getMembers, getMemberOverdueDetails } from '../services/api';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Phone, ChevronRight, Search, UserPlus, Users } from './Icons';
+import { Phone, ChevronRight, Search, UserPlus, Users, LoadingSpinner } from './Icons';
 import { AISummary } from './AISummary';
 import { useApp } from '../contexts/AppContext';
+import { useToast } from './Notifications';
 
 const statusStyles: { [key in PaymentStatus]: { bg: string, text: string, ring: string, name: string } } = {
   [PaymentStatus.EmDia]: { bg: 'bg-green-100 dark:bg-green-500/10', text: 'text-green-700 dark:text-green-300', ring: 'ring-green-500/20', name: 'Em Dia' },
@@ -45,131 +46,15 @@ const overdueItemVariants: Variants = {
     visible: { opacity: 1, x: 0 },
 }
 
-const MemberRow: React.FC<{ 
-    member: Member; 
-    onSelect: (id: string) => void; 
-}> = ({ member, onSelect }) => {
-    const { membersListState, setMembersListState, setView } = useApp();
-    const { expandedMemberId } = membersListState;
-
-    const status = statusStyles[member.paymentStatus];
-    const isExpanded = expandedMemberId === member.id;
-
-    const handleToggleExpand = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (member.overdueMonthsCount > 0) {
-            setMembersListState(s => ({ ...s, expandedMemberId: isExpanded ? null : member.id }));
-        }
-    };
-
-    const handlePayClick = (e: React.MouseEvent, month: string) => {
-        e.stopPropagation();
-        setView({ name: 'payment-form', id: member.id, month: month, returnView: { name: 'members' } });
-    };
-
-    return (
-        <motion.div
-            variants={memberRowVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            layout
-            onClick={() => onSelect(member.id)}
-            className="rounded-xl border border-border dark:border-dark-border mb-3 cursor-pointer group overflow-hidden bg-card dark:bg-dark-card"
-            whileHover={{ scale: 1.01, y: -2 }}
-            whileTap={{ scale: 0.99 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-        >
-            <div className="p-3 sm:p-4">
-                <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-primary/10 text-primary dark:bg-dark-primary/20 dark:text-dark-primary rounded-full flex items-center justify-center font-bold text-base sm:text-lg flex-shrink-0">
-                            {member.name.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                            <p className="font-semibold text-base sm:text-lg text-foreground dark:text-dark-foreground break-words">{member.name}</p>
-                            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs sm:text-sm text-muted-foreground dark:text-dark-muted-foreground mt-1">
-                                {member.monthlyFee > 0 && (
-                                    <span>{formatCurrency(member.monthlyFee)}</span>
-                                )}
-                                <span className="hidden sm:flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{formatPhone(member.phone)}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-                        <motion.button
-                            onClick={handleToggleExpand}
-                            className={`flex items-center justify-center rounded-full transition-all duration-300 py-1.5 px-3 text-xs sm:text-sm font-semibold ${status.bg} ${status.text} ${member.overdueMonthsCount > 0 ? 'cursor-pointer hover:ring-2 ' + status.ring : ''}`}
-                            whileTap={{ scale: member.overdueMonthsCount > 0 ? 0.95 : 1 }}
-                        >
-                            <span>{status.name}</span>
-                            {member.overdueMonthsCount > 0 && (
-                                <span className="ml-2 bg-danger text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                                    {member.overdueMonthsCount}
-                                </span>
-                            )}
-                        </motion.button>
-                        <ChevronRight className="h-5 w-5 text-muted-foreground dark:text-dark-muted-foreground group-hover:text-foreground dark:group-hover:text-dark-foreground transition-colors hidden sm:block" />
-                    </div>
-                </div>
-            </div>
-
-            <AnimatePresence>
-                {isExpanded && (
-                    <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.3, ease: 'easeInOut' }}
-                        className="bg-danger-strong dark:bg-dark-danger-strong"
-                    >
-                        <div className="p-4 border-t border-red-500/10 dark:border-red-500/20">
-                            <h4 className="font-semibold text-red-700 dark:text-red-300 text-sm mb-3">
-                                Meses pendentes
-                            </h4>
-                             <motion.ul variants={overdueListVariants} initial="hidden" animate="visible" className="space-y-2 max-h-48 overflow-y-auto pr-2 text-sm custom-scrollbar">
-                                {member.overdueMonths.map(item => {
-                                    const date = new Date(item.month + '-02');
-                                    const monthName = date.toLocaleDateString('pt-BR', { month: 'long' });
-                                    const year = date.getFullYear();
-                                    const formattedDate = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)}/${year}`;
-                                    
-                                    return (
-                                        <motion.li variants={overdueItemVariants} key={item.month} className="flex justify-between items-center bg-white dark:bg-dark-card p-2 rounded-lg">
-                                            <div>
-                                                <span className="font-semibold text-foreground dark:text-dark-foreground">{formattedDate}</span>
-                                                <span className="block text-xs text-muted-foreground">{formatCurrency(item.amount)}</span>
-                                            </div>
-                                            <motion.button
-                                                onClick={(e) => handlePayClick(e, item.month)}
-                                                className="bg-primary text-primary-foreground font-bold text-xs py-1.5 px-3 rounded-full hover:bg-primary/90 transition-all"
-                                                whileTap={{ scale: 0.95 }}
-                                            >
-                                                Pagar
-                                            </motion.button>
-                                        </motion.li>
-                                    );
-                                })}
-                            </motion.ul>
-                            <div className="border-t border-red-500/10 dark:border-red-500/20 mt-3 pt-3 font-bold flex justify-between items-baseline">
-                                <span className="text-base text-red-700 dark:text-red-300">VALOR PENDENTE</span>
-                                 <span className="bg-danger text-destructive-foreground text-lg font-bold px-4 py-1.5 rounded-full">
-                                    {formatCurrency(member.totalDue)}
-                                </span>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
-    );
-};
-
 export const Members: React.FC = () => {
   const { setView, membersListState, setMembersListState } = useApp();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  const { searchTerm, filters } = membersListState;
+  const { searchTerm, filters, expandedMemberId } = membersListState;
+  const toast = useToast();
+
+  const [detailsCache, setDetailsCache] = useState<Record<string, { overdueMonths: OverdueMonth[], totalDue: number }>>({});
+  const [detailsLoading, setDetailsLoading] = useState<string | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -209,6 +94,25 @@ export const Members: React.FC = () => {
     setMembersListState(s => ({ ...s, filters: { ...s.filters, activity: activityValue }, status: 'all', expandedMemberId: null }));
   };
 
+  const handleToggleExpand = useCallback(async (memberId: string, overdueCount: number) => {
+    if (overdueCount === 0) return;
+
+    const isCurrentlyExpanded = expandedMemberId === memberId;
+    setMembersListState(s => ({ ...s, expandedMemberId: isCurrentlyExpanded ? null : memberId }));
+
+    if (!isCurrentlyExpanded && !detailsCache[memberId]) {
+        setDetailsLoading(memberId);
+        try {
+            const details = await getMemberOverdueDetails(memberId);
+            setDetailsCache(prev => ({ ...prev, [memberId]: details }));
+        } catch (err) {
+            toast.error('Erro ao carregar detalhes.');
+        } finally {
+            setDetailsLoading(null);
+        }
+    }
+  }, [expandedMemberId, detailsCache, setMembersListState, toast]);
+
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.05, delayChildren: 0.1 } },
@@ -230,6 +134,127 @@ export const Members: React.FC = () => {
       4. Mencione se há membros notáveis, como isentos ('Isento') ou em licença ('Em Licença').
       Seja breve e amigável. Use negrito para números e valores.
   `;
+
+  const MemberRow: React.FC<{ 
+    member: Member; 
+    onSelect: (id: string) => void;
+  }> = ({ member, onSelect }) => {
+    const status = statusStyles[member.paymentStatus];
+    const isExpanded = expandedMemberId === member.id;
+    const details = detailsCache[member.id];
+    const isLoadingDetails = detailsLoading === member.id;
+
+    const handlePayClick = (e: React.MouseEvent, month: string) => {
+        e.stopPropagation();
+        setView({ name: 'payment-form', id: member.id, month: month, returnView: { name: 'members' } });
+    };
+
+    return (
+        <motion.div
+            variants={memberRowVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            layout
+            onClick={() => onSelect(member.id)}
+            className="rounded-xl border border-border dark:border-dark-border mb-3 cursor-pointer group overflow-hidden bg-card dark:bg-dark-card"
+            whileHover={{ scale: 1.01, y: -2 }}
+            whileTap={{ scale: 0.99 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+        >
+            <div className="p-3 sm:p-4">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-primary/10 text-primary dark:bg-dark-primary/20 dark:text-dark-primary rounded-full flex items-center justify-center font-bold text-base sm:text-lg flex-shrink-0">
+                            {member.name.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                            <p className="font-semibold text-base sm:text-lg text-foreground dark:text-dark-foreground break-words">{member.name}</p>
+                            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs sm:text-sm text-muted-foreground dark:text-dark-muted-foreground mt-1">
+                                {member.monthlyFee > 0 && (
+                                    <span>{formatCurrency(member.monthlyFee)}</span>
+                                )}
+                                <span className="hidden sm:flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />{formatPhone(member.phone)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+                        <motion.button
+                            onClick={(e) => { e.stopPropagation(); handleToggleExpand(member.id, member.overdueMonthsCount); }}
+                            className={`flex items-center justify-center rounded-full transition-all duration-300 py-1.5 px-3 text-xs sm:text-sm font-semibold ${status.bg} ${status.text} ${member.overdueMonthsCount > 0 ? 'cursor-pointer hover:ring-2 ' + status.ring : ''}`}
+                            whileTap={{ scale: member.overdueMonthsCount > 0 ? 0.95 : 1 }}
+                        >
+                            <span>{status.name}</span>
+                            {member.overdueMonthsCount > 0 && (
+                                <span className="ml-2 bg-danger text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                                    {member.overdueMonthsCount}
+                                </span>
+                            )}
+                        </motion.button>
+                        <ChevronRight className="h-5 w-5 text-muted-foreground dark:text-dark-muted-foreground group-hover:text-foreground dark:group-hover:text-dark-foreground transition-colors hidden sm:block" />
+                    </div>
+                </div>
+            </div>
+
+            <AnimatePresence>
+                {isExpanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: 'easeInOut' }}
+                        className="bg-danger-strong dark:bg-dark-danger-strong"
+                    >
+                         <div className="p-4 border-t border-red-500/10 dark:border-red-500/20">
+                            <h4 className="font-semibold text-red-700 dark:text-red-300 text-sm mb-3">
+                                Meses pendentes
+                            </h4>
+                            {isLoadingDetails ? (
+                                <div className="flex justify-center items-center h-24">
+                                    <LoadingSpinner className="h-6 w-6 text-danger" />
+                                </div>
+                            ) : details ? (
+                                <>
+                                    <motion.ul variants={overdueListVariants} initial="hidden" animate="visible" className="space-y-2 max-h-48 overflow-y-auto pr-2 text-sm custom-scrollbar">
+                                        {details.overdueMonths.map(item => {
+                                            const date = new Date(item.month + '-02');
+                                            const monthName = date.toLocaleDateString('pt-BR', { month: 'long', timeZone: 'UTC' });
+                                            const year = date.getUTCFullYear();
+                                            const formattedDate = `${monthName.charAt(0).toUpperCase() + monthName.slice(1)}/${year}`;
+                                            
+                                            return (
+                                                <motion.li variants={overdueItemVariants} key={item.month} className="flex justify-between items-center bg-white dark:bg-dark-card p-2 rounded-lg">
+                                                    <div>
+                                                        <span className="font-semibold text-foreground dark:text-dark-foreground">{formattedDate}</span>
+                                                        <span className="block text-xs text-muted-foreground">{formatCurrency(item.amount)}</span>
+                                                    </div>
+                                                    <motion.button
+                                                        onClick={(e) => handlePayClick(e, item.month)}
+                                                        className="bg-primary text-primary-foreground font-bold text-xs py-1.5 px-3 rounded-full hover:bg-primary/90 transition-all"
+                                                        whileTap={{ scale: 0.95 }}
+                                                    >
+                                                        Pagar
+                                                    </motion.button>
+                                                </motion.li>
+                                            );
+                                        })}
+                                    </motion.ul>
+                                    <div className="border-t border-red-500/10 dark:border-red-500/20 mt-3 pt-3 font-bold flex justify-between items-baseline">
+                                        <span className="text-base text-red-700 dark:text-red-300">VALOR PENDENTE</span>
+                                        <span className="bg-danger text-destructive-foreground text-lg font-bold px-4 py-1.5 rounded-full">
+                                            {formatCurrency(details.totalDue)}
+                                        </span>
+                                    </div>
+                                </>
+                            ) : <p className="text-center text-red-700 dark:text-red-300">Não foi possível carregar os detalhes.</p> }
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </motion.div>
+    );
+  };
+
 
   return (
     <div className="space-y-6">

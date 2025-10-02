@@ -40,8 +40,8 @@ export interface Member {
   onLeave: boolean;
   paymentStatus: PaymentStatus;
   overdueMonthsCount: number;
-  overdueMonths: OverdueMonth[];
-  totalDue: number;
+  overdueMonths?: OverdueMonth[];
+  totalDue?: number;
 }
 
 export interface Payment {

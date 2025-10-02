@@ -41,6 +41,49 @@ const itemVariants: Variants = {
   exit: { y: 20, opacity: 0 }
 };
 
+const ConfirmationModal: React.FC<{
+    payment: Payment;
+    onClose: () => void;
+    onConfirm: () => void;
+}> = ({ payment, onClose, onConfirm }) => (
+     <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={onClose}
+    >
+        <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="bg-card dark:bg-dark-card rounded-xl p-6 w-full max-w-md shadow-lg border border-border dark:border-dark-border"
+            onClick={(e) => e.stopPropagation()}
+        >
+            <div className="text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                    <Trash className="h-6 w-6 text-destructive" aria-hidden="true" />
+                </div>
+                <h3 className="mt-4 text-xl font-bold font-display text-foreground dark:text-dark-foreground">Excluir Pagamento?</h3>
+                <div className="mt-2 text-sm text-muted-foreground">
+                    <p>
+                        Tem certeza que deseja remover o pagamento de <span className="font-semibold">{formatCurrency(payment.amount)}</span> referente a <span className="font-semibold">{new Date(payment.referenceMonth + '-02').toLocaleDateString('pt-BR', {month: 'long', year: 'numeric'})}</span>?
+                    </p>
+                </div>
+            </div>
+            <div className="mt-6 flex justify-center gap-4">
+                <button type="button" onClick={onClose} className="inline-flex justify-center rounded-md border border-border dark:border-dark-border bg-card dark:bg-dark-card px-4 py-2 text-sm font-semibold text-foreground dark:text-dark-foreground shadow-sm hover:bg-muted dark:hover:bg-dark-muted">
+                    Cancelar
+                </button>
+                <button type="button" onClick={onConfirm} className="inline-flex justify-center rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground shadow-sm hover:bg-destructive/90">
+                    Sim, Excluir
+                </button>
+            </div>
+        </motion.div>
+    </motion.div>
+);
+
 const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
     const { setView } = useApp();
     const { id: memberId, componentState } = viewState as { name: 'member-profile', id: string, componentState?: any };
@@ -54,12 +97,13 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
     const [leaves, setLeaves] = useState<Leave[]>([]);
     const [loading, setLoading] = useState(true);
     const [openYear, setOpenYear] = useState(componentState?.openYear || new Date().getFullYear().toString());
-    const [expandedDetail, setExpandedDetail] = useState<{ id: string; type: 'comment' | 'attachment' | 'delete' } | null>(null);
     const isInitialLoad = useRef(true);
     const toast = useToast();
     const [isInfoExpanded, setIsInfoExpanded] = useState(false);
     const [isLeavesExpanded, setIsLeavesExpanded] = useState(false);
     const [leaveToDelete, setLeaveToDelete] = useState<Leave | null>(null);
+    const [expandedPayments, setExpandedPayments] = useState<Set<string>>(new Set());
+    const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null);
 
 
     useEffect(() => {
@@ -128,7 +172,7 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
     const handleConfirmPaymentDelete = async (paymentId: string) => {
         await deletePayment(paymentId);
         toast.success("Pagamento excluído com sucesso.");
-        setExpandedDetail(null);
+        setPaymentToDelete(null);
         await fetchData(true);
     };
 
@@ -140,12 +184,16 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
         await fetchData(true);
     };
     
-    const handleToggleDetail = (id: string, type: 'comment' | 'attachment' | 'delete') => {
-        if (expandedDetail?.id === id && expandedDetail?.type === type) {
-            setExpandedDetail(null);
-        } else {
-            setExpandedDetail({ id, type });
-        }
+    const handleTogglePaymentExpand = (paymentId: string) => {
+        setExpandedPayments(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(paymentId)) {
+                newSet.delete(paymentId);
+            } else {
+                newSet.add(paymentId);
+            }
+            return newSet;
+        });
     };
     
     const parseDateAsUTC = useCallback((dateString: string) => {
@@ -215,6 +263,16 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
         Arquivado: 'bg-gray-300 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
     };
     
+    const ActionButton: React.FC<{ icon: React.ReactNode, label: string, onClick: (e: React.MouseEvent) => void, destructive?: boolean }> = ({ icon, label, onClick, destructive = false }) => (
+        <button 
+            onClick={onClick} 
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${destructive ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' : 'bg-secondary dark:bg-dark-secondary text-secondary-foreground dark:text-dark-secondary-foreground hover:bg-muted dark:hover:bg-dark-muted'}`}
+        >
+            {icon}
+            {label}
+        </button>
+    );
+
     return (
         <div className="space-y-8">
             <motion.div 
@@ -409,11 +467,48 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
                                                     {paymentMonthsByYear[year].map(({month, monthName, payment, onLeave}) => {
                                                         const isPaid = !!payment;
                                                         const isDue = new Date(month + '-01') <= new Date() && !isPaid && member.activityStatus !== 'Desligado';
-                                                        const isExpanded = (id: string, type: 'comment' | 'attachment' | 'delete') => expandedDetail?.id === id && expandedDetail?.type === type;
-
+                                                        
                                                         if (payment) {
-                                                            // Always show payment if it exists
-                                                        } else if (onLeave) {
+                                                            const isCardExpanded = expandedPayments.has(payment.id);
+                                                            return (
+                                                                <motion.div layout key={month} className="rounded-lg transition-all duration-300 bg-success-strong dark:bg-dark-success-strong">
+                                                                    <button onClick={() => handleTogglePaymentExpand(payment.id)} className="w-full flex justify-between items-center p-2 sm:p-3 text-left">
+                                                                        <div>
+                                                                            <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
+                                                                            <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
+                                                                                <span className="font-bold">{formatCurrency(payment.amount)}</span>
+                                                                                <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <motion.div animate={{ rotate: isCardExpanded ? 180 : 0 }}>
+                                                                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                                                        </motion.div>
+                                                                    </button>
+                                                                    <AnimatePresence>
+                                                                        {isCardExpanded && (
+                                                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: 'easeInOut' }} className="overflow-hidden">
+                                                                                <div className="px-3 pb-3 pt-2 border-t border-black/10 dark:border-white/10 space-y-3">
+                                                                                    {payment.comments && (
+                                                                                        <div>
+                                                                                            <h5 className="font-bold text-xs uppercase text-muted-foreground mb-1">Observações</h5>
+                                                                                            <p className="text-sm text-foreground dark:text-dark-foreground/90 whitespace-pre-wrap">{payment.comments}</p>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                                        {payment.transactionId && <ActionButton icon={<Receipt className="h-4 w-4"/>} label="Transação" onClick={(e) => { e.stopPropagation(); setView({ name: 'transaction-view', transactionId: payment.transactionId!, returnView: currentView })}} />}
+                                                                                        {payment.attachmentUrl && <ActionButton icon={<Paperclip className="h-4 w-4"/>} label="Anexo" onClick={(e) => { e.stopPropagation(); setView({ name: 'attachment-view', attachmentUrl: payment.attachmentUrl!, returnView: currentView })}} />}
+                                                                                        <ActionButton icon={<Edit className="h-4 w-4"/>} label="Editar" onClick={(e) => { e.stopPropagation(); setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}} />
+                                                                                        <ActionButton icon={<Trash className="h-4 w-4"/>} label="Excluir" onClick={(e) => { e.stopPropagation(); setPaymentToDelete(payment); }} destructive />
+                                                                                    </div>
+                                                                                </div>
+                                                                            </motion.div>
+                                                                        )}
+                                                                    </AnimatePresence>
+                                                                </motion.div>
+                                                            );
+                                                        }
+
+                                                        if (onLeave) {
                                                             return (
                                                                 <div key={month} className="flex items-center gap-2 p-2 sm:p-3 bg-blue-100/50 dark:bg-blue-900/20 rounded-lg">
                                                                     <Briefcase className="h-4 w-4 text-blue-500 flex-shrink-0"/>
@@ -422,110 +517,18 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
                                                             );
                                                         }
                                                         
-                                                        const monthBgClass = isPaid ? 'bg-success-strong dark:bg-dark-success-strong' : isDue ? 'bg-danger-strong dark:bg-dark-danger-strong' : 'bg-gray-200/60 dark:bg-gray-800/20';
+                                                        const monthBgClass = isDue ? 'bg-danger-strong dark:bg-dark-danger-strong' : 'bg-gray-200/60 dark:bg-gray-800/20';
 
                                                         return (
-                                                            <motion.div 
-                                                            key={month} 
-                                                            className={`rounded-lg transition-all duration-300 ${monthBgClass}`}
-                                                            layout
-                                                            >
+                                                            <div key={month} className={`rounded-lg transition-all duration-300 ${monthBgClass}`}>
                                                                 <div className="flex justify-between items-center p-2 sm:p-3">
-                                                                    <div>
-                                                                        <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
-                                                                        {payment && (
-                                                                            <div className="text-xs text-green-800/80 dark:text-green-300/80 mt-1">
-                                                                                <span className="font-bold">{formatCurrency(payment.amount)}</span>
-                                                                                <span className="ml-1">em {new Date(payment.paymentDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                    {payment ? (
-                                                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                                                            {payment.transactionId && (
-                                                                                <motion.button
-                                                                                    onClick={() => setView({ name: 'transaction-view', transactionId: payment.transactionId!, returnView: currentView })}
-                                                                                    aria-label="Ver transação"
-                                                                                    className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                                    whileTap={{ scale: 0.9 }}
-                                                                                >
-                                                                                    <Receipt className="h-5 w-5" />
-                                                                                </motion.button>
-                                                                            )}
-                                                                            <motion.button
-                                                                                onClick={() => setView({ name: 'edit-payment-form', id: memberId, paymentId: payment.id, returnView: currentView })}
-                                                                                aria-label="Editar pagamento"
-                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                                whileTap={{ scale: 0.9 }}
-                                                                            >
-                                                                                <Edit className="h-5 w-5" />
-                                                                            </motion.button>
-                                                                            {payment.attachmentUrl && (
-                                                                                <motion.button
-                                                                                    onClick={() => setView({ name: 'attachment-view', attachmentUrl: payment.attachmentUrl!, returnView: currentView })}
-                                                                                    aria-label="Ver anexo"
-                                                                                    className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                                    whileTap={{ scale: 0.9 }}
-                                                                                >
-                                                                                    <Paperclip className="h-5 w-5" />
-                                                                                </motion.button>
-                                                                            )}
-                                                                            {payment.comments && (
-                                                                                <motion.button
-                                                                                    onClick={() => handleToggleDetail(payment.id, 'comment')}
-                                                                                    aria-label="Ver observações"
-                                                                                    className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-card dark:bg-dark-secondary text-muted-foreground hover:text-foreground shadow-sm border border-border dark:border-dark-border hover:border-primary"
-                                                                                    whileTap={{ scale: 0.9 }}
-                                                                                >
-                                                                                    <MessageSquare className="h-5 w-5" />
-                                                                                </motion.button>
-                                                                            )}
-                                                                            <motion.button
-                                                                                onClick={() => handleToggleDetail(payment.id, 'delete')}
-                                                                                aria-label="Excluir pagamento"
-                                                                                className="w-10 h-10 flex items-center justify-center rounded-full transition-all bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90"
-                                                                                whileTap={{ scale: 0.9 }}
-                                                                            >
-                                                                                <Trash className="h-5 w-5" />
-                                                                            </motion.button>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <button onClick={() => setView({ name: 'payment-form', id: memberId, month, returnView: currentView })} className="bg-primary shadow-sm shadow-primary/30 text-primary-foreground font-bold text-xs py-2 px-3 rounded-full hover:bg-primary/90 transition-all">
-                                                                            Registrar
-                                                                        </button>
-                                                                    )}
+                                                                    <span className="font-semibold capitalize text-sm sm:text-base">{monthName}</span>
+                                                                    <button onClick={() => setView({ name: 'payment-form', id: memberId, month, returnView: currentView })} className="bg-primary shadow-sm shadow-primary/30 text-primary-foreground font-bold text-xs py-2 px-3 rounded-full hover:bg-primary/90 transition-all">
+                                                                        Registrar
+                                                                    </button>
                                                                 </div>
-                                                                <AnimatePresence>
-                                                                {payment && isExpanded(payment.id, 'comment') && payment.comments && (
-                                                                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
-                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-black/10 dark:border-white/10 mx-3 pb-3">
-                                                                        <div className="pt-3 space-y-3 text-sm">
-                                                                        <div>
-                                                                            <h5 className="font-bold text-gray-700 dark:text-gray-300 mb-1">Observações:</h5>
-                                                                            <p className="text-muted-foreground whitespace-pre-wrap">{payment.comments}</p>
-                                                                        </div>
-                                                                        </div>
-                                                                    </motion.div>
-                                                                    </motion.div>
-                                                                )}
-                                                                </AnimatePresence>
-                                                                <AnimatePresence>
-                                                                {payment && isExpanded(payment.id, 'delete') && (
-                                                                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden" transition={{ duration: 0.3, ease: 'easeInOut' }}>
-                                                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.2 } }} exit={{ opacity: 0, transition: { duration: 0.1 } }} className="border-t border-danger/20 mx-3 pb-3">
-                                                                        <div className="pt-3 text-center space-y-3">
-                                                                        <p className="text-sm font-semibold text-danger">Confirmar exclusão do pagamento?</p>
-                                                                        <div className="flex justify-center gap-3">
-                                                                            <button onClick={() => setExpandedDetail(null)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-secondary dark:bg-dark-secondary hover:bg-muted dark:hover:bg-dark-muted">Cancelar</button>
-                                                                            <button onClick={() => handleConfirmPaymentDelete(payment.id)} className="px-4 py-1.5 text-xs font-semibold rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90">Sim, excluir</button>
-                                                                        </div>
-                                                                        </div>
-                                                                    </motion.div>
-                                                                    </motion.div>
-                                                                )}
-                                                                </AnimatePresence>
-                                                            </motion.div>
-                                                        )
+                                                            </div>
+                                                        );
                                                     })}
                                                 </div>
                                             </motion.div>
@@ -543,6 +546,17 @@ const MemberProfile: React.FC<{ viewState: ViewState; }> = ({ viewState }) => {
                     </motion.div>
                  </motion.div>
             </motion.div>
+
+            <AnimatePresence>
+                {paymentToDelete && (
+                   <ConfirmationModal 
+                        payment={paymentToDelete}
+                        onClose={() => setPaymentToDelete(null)}
+                        onConfirm={() => handleConfirmPaymentDelete(paymentToDelete.id)}
+                   />
+                )}
+            </AnimatePresence>
+
             <AnimatePresence>
                 {leaveToDelete && (
                     <motion.div

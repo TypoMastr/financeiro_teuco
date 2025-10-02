@@ -18,6 +18,16 @@ const getCurrentMonthDateRange = () => {
     return { startDate, endDate };
 };
 
+// --- Animation Variants ---
+const containerVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
+};
+const itemVariants: Variants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 150, damping: 20 } },
+};
+
 // --- Sub-components ---
 const FilterInput: React.FC<{ label: string, children: React.ReactNode }> = ({ label, children }) => (
     <div>
@@ -320,19 +330,25 @@ export const TransactionHistory: React.FC<{ viewState: ViewState }> = ({ viewSta
             ) : (
                 <div>
                     {transactions.length > 0 ? (
-                        <div className="space-y-3">
+                        <motion.div 
+                            className="space-y-3"
+                            variants={containerVariants}
+                            initial="hidden"
+                            animate="visible"
+                        >
                             {transactions.map(t => (
-                                <TransactionCard
-                                    key={t.id}
-                                    transaction={t}
-                                    categoryName={categoryMap.get(t.categoryId) || 'N/A'}
-                                    onSelect={() => setView({ name: 'transaction-form', transactionId: t.id, returnView: currentView })}
-                                    onViewAttachment={(url) => setView({ name: 'attachment-view', attachmentUrl: url, returnView: currentView })}
-                                    expandedTransaction={expandedTransaction}
-                                    onToggleDetail={handleToggleDetail}
-                                />
+                                <motion.div key={t.id} variants={itemVariants}>
+                                    <TransactionCard
+                                        transaction={t}
+                                        categoryName={categoryMap.get(t.categoryId) || 'N/A'}
+                                        onSelect={() => setView({ name: 'transaction-form', transactionId: t.id, returnView: currentView })}
+                                        onViewAttachment={(url) => setView({ name: 'attachment-view', attachmentUrl: url, returnView: currentView })}
+                                        expandedTransaction={expandedTransaction}
+                                        onToggleDetail={handleToggleDetail}
+                                    />
+                                </motion.div>
                             ))}
-                        </div>
+                        </motion.div>
                     ) : (
                         <div className="text-center py-20 text-muted-foreground">
                             <p className="font-semibold text-lg">Nenhuma transação encontrada.</p>

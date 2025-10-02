@@ -506,27 +506,41 @@ export const getMembers = async (filters?: MemberFilters): Promise<Member[]> => 
     // 2. Fetch related data only for the filtered members
     const memberIds = membersData.map(m => m.id);
 
-    const [paymentsRes, leavesRes] = await Promise.all([
-        supabase.from('payments').select('*').in('member_id', memberIds),
-        supabase.from('leaves').select('*').in('member_id', memberIds).then(res => {
-            if (res.error && res.error.code === 'PGRST205') {
-                console.warn('Supabase warning: "leaves" table not found for getMembers. "Leave of Absence" feature will be disabled.');
-                return { data: [], error: null }; // Return empty data and null error
+    const paymentsPromise = supabase.from('payments').select('*').in('member_id', memberIds);
+    // Gracefully handle leaves fetching so it doesn't crash the main members list if it fails.
+    // FIX: Replaced .then().catch() with an async IIFE to correctly handle the PromiseLike type returned by Supabase, which was causing a TypeScript error.
+    const leavesPromise = (async () => {
+        try {
+            const response = await supabase.from('leaves').select('*').in('member_id', memberIds);
+            // Handle Supabase client errors that resolve (e.g., table not found)
+            if (response.error && response.error.code === 'PGRST205') {
+              console.warn('Supabase warning: "leaves" table not found. Proceeding without leave data.');
+              return { data: [], error: null };
             }
-            return res;
-        })
-    ]);
+            return response;
+        } catch (error) {
+            // Handle promise rejections (e.g., network error)
+            console.error('Failed to fetch leaves, proceeding without leave data:', error);
+            return { data: [], error }; // Return an object that won't crash destructuring
+        }
+    })();
+
+    const [paymentsRes, leavesRes] = await Promise.all([paymentsPromise, leavesPromise]);
 
     const { data: paymentsData, error: paymentsError } = paymentsRes;
-    if (paymentsError) throw paymentsError;
+    if (paymentsError) throw paymentsError; // Payments are essential
 
+    // leavesRes will always be an object with data and error properties
     const { data: leavesData, error: leavesError } = leavesRes;
-    if (leavesError) throw leavesError;
+    if (leavesError) {
+        // Log the error but don't throw, allowing the app to function without leave data.
+        console.error('Non-critical error fetching leaves:', leavesError.message);
+    }
 
     // 3. Process data client-side (this part is unavoidable without DB functions)
     const rawMembers = convertObjectKeys(membersData, toCamelCase);
     const rawPayments = convertObjectKeys(paymentsData, toCamelCase);
-    const rawLeaves = convertObjectKeys(leavesData, toCamelCase);
+    const rawLeaves = convertObjectKeys(leavesData || [], toCamelCase);
 
     const leavesByMember = new Map<string, Leave[]>();
     rawLeaves.forEach((leave: Leave) => {
@@ -543,18 +557,36 @@ export const getMembers = async (filters?: MemberFilters): Promise<Member[]> => 
     });
 
     // 4. Final client-side filtering for calculated fields
-    if (!filters) return detailedMembers;
-
-    return detailedMembers.filter(member => {
-        if (filters.activity === 'OnLeave' && !member.onLeave) {
-            return false;
-        }
-        if (filters.status && filters.status !== 'all' && member.paymentStatus !== filters.status) {
-            return false;
-        }
-        return true;
+    const filteredDetailedMembers = !filters
+        ? detailedMembers
+        : detailedMembers.filter(member => {
+            if (filters.activity === 'OnLeave' && !member.onLeave) {
+                return false;
+            }
+            if (filters.status && filters.status !== 'all' && member.paymentStatus !== filters.status) {
+                return false;
+            }
+            return true;
+        });
+        
+    // Return members without the heavy details for faster initial load
+    return filteredDetailedMembers.map(member => {
+      const { overdueMonths, totalDue, ...basicMemberData } = member;
+      return basicMemberData as Member;
     });
 };
+
+export const getMemberOverdueDetails = async (memberId: string): Promise<{ overdueMonths: OverdueMonth[], totalDue: number }> => {
+    const member = await getMemberById(memberId);
+    if (!member) {
+        throw new Error('Member not found');
+    }
+    return {
+        overdueMonths: member.overdueMonths || [],
+        totalDue: member.totalDue || 0,
+    };
+};
+
 
 export const getMemberById = async (id: string): Promise<Member | undefined> => {
     const { data, error } = await supabase.from('members').select('*').eq('id', id).single();
@@ -1489,14 +1521,14 @@ export const getDashboardStats = async (): Promise<Stats> => {
     const overdueMembersCount = contributingMembers.filter(m => m.paymentStatus === PaymentStatus.Atrasado).length;
 
     const totalOverdueAmount = members.reduce((sum, m) => {
-        const previousMonthsDue = m.overdueMonths
+        const previousMonthsDue = (m.overdueMonths || [])
             .filter(om => om.month < currentMonthStr)
             .reduce((monthSum, om) => monthSum + om.amount, 0);
         return sum + previousMonthsDue;
     }, 0);
     
     const currentMonthPendingAmount = contributingMembers
-        .filter(m => m.overdueMonths.some(om => om.month === currentMonthStr))
+        .filter(m => (m.overdueMonths || []).some(om => om.month === currentMonthStr))
         .reduce((sum, m) => sum + m.monthlyFee, 0);
 
     const nextMonthProjectedRevenue = contributingMembers.reduce((sum, m) => sum + m.monthlyFee, 0);
