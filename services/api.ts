@@ -508,7 +508,13 @@ export const getMembers = async (filters?: MemberFilters): Promise<Member[]> => 
 
     const [paymentsRes, leavesRes] = await Promise.all([
         supabase.from('payments').select('*').in('member_id', memberIds),
-        supabase.from('leaves').select('*').in('member_id', memberIds)
+        supabase.from('leaves').select('*').in('member_id', memberIds).then(res => {
+            if (res.error && res.error.code === 'PGRST205') {
+                console.warn('Supabase warning: "leaves" table not found for getMembers. "Leave of Absence" feature will be disabled.');
+                return { data: [], error: null }; // Return empty data and null error
+            }
+            return res;
+        })
     ]);
 
     const { data: paymentsData, error: paymentsError } = paymentsRes;
